@@ -1,0 +1,17 @@
+{
+  "deviceOrientation": "landscape",
+  "subpackages": [
+    {
+      "name": "images",
+      "root": "images/"
+    },
+    {
+      "name": "media",
+      "root": "media/"
+    },
+    {
+      "name": "data",
+      "root": "data/"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "source": "D:\\Desktop\\REBench\\apk\\G-Switch 4_ Creator_1.4.0_apkcombo.com.xapk",
+  "engine_result": {
+    "engine": "Haxe/Lime/OpenFL",
+    "status": "PAUSE",
+    "action_message": "【暂停流程】检测到该 APK 为 Haxe/Lime/OpenFL 引擎开发（非 Construct 3），暂停自动化移植并提示用户评估。",
+    "details": {
+      "unity_evidence": [],
+      "c3_evidence": [],
+      "other_evidence": [],
+      "wrapper": "Web/HTML5"
+    }
+  }
+}

@@ -1,0 +1,71 @@
+# 抖音小游戏规范、分包限制与编译器兼容手册
+
+## 1. 包体大小与架构规范
+
+| 指标项 | 官方规范限制 | 推荐安全红线 | 优化手段 |
+|---|---|---|---|
+| **主包大小 (Main Package)** | **<= 4.0 MB** (超额直接拒绝上传) | **<= 3.0 MB** | 图集转移至分包、音频全外置、清理无用 JS 插件 |
+| **单个分包大小** | <= 20.0 MB | <= 15.0 MB | 按模块拆分（如 images/, media/, data/） |
+| **整体工程总大小** | <= 30.0 MB (含所有分包) | <= 25.0 MB | 音频高压缩比编码（如 64kbps m4a/mp3） |
+
+### 分包根目录核心铁律：必须存在 `game.js`
+抖音开发者工具编译器要求：每个在 `game.json` 的 `subPackages` 中声明的分包目录，其**根路径下必须包含 `game.js`**：
+```text
+game.json ["subPackages"][0]["root"] 'images/' should have game.js
+```
+**解法**：在每个分包目录下创建空的出口文件：
+```javascript
+// images/game.js
+module.exports = {};
+```
+
+---
+
+## 2. 预加载时序架构
+
+在 `game.js` 启动主流程前，使用 `tt.loadSubpackage` 异步加载所有分包：
+```javascript
+Promise.all([
+  loadSubpackage('images'),
+  loadSubpackage('media'),
+  loadSubpackage('data')
+]).then(() => {
+  // 分包就绪，触发 deviceready 启动 C3 Runtime
+  triggerDeviceReady();
+});
+```
+
+---
+
+## 3. 常见编译错误与语法冲突修复
+
+### 1. SWC 编译器保留字报错 (`Expression expected`)
+- **错误信息**：
+  ```text
+  Module parse failed: JavaScript parsing error: Expression expected
+  _inherits(switch, _self_ISpriteInstance);
+  function switch() { ... }
+  ```
+- **原因**：Construct 3 导出的第三方插件或混淆代码中使用了 JS 保留字（如 `switch`）作为类名或函数名，抖音开发者工具内建的 `swc-loader` 无法通过。
+- **解法**：在脚本（如 `objRefTable.js`）中将 `switch` 替换为合法标识符（如 `_switch` 或 `SwitchObject`）。
+
+### 2. 私有类属性报错 (`Unexpected character '#'`)
+- **错误信息**：
+  ```text
+  SyntaxError: scripts/modernjscheck.js: Unexpected character '#' (1:54)
+  new class{#p="pass";getProp(){return this.#p}}
+  ```
+- **原因**：`modernjscheck.js` 试图用 `#` 私有字段探测环境现代 JS 支持，在部分转译器或低版本内核中抛错。
+- **解法**：直接绕过该探测，注入标志：
+  ```javascript
+  window["C3_ModernJSSupport_OK"] = true;
+  window["C3_IsSupported"] = true;
+  ```
+
+### 3. Unicode 正则表达式报错
+- **错误信息**：
+  ```text
+  SyntaxError: Invalid regular expression: /\p{P}(?<=[\u3000-\u303F\uFF00-\uFFEF])/: Invalid property name
+  ```
+- **原因**：Krypton JS 引擎不完整支持 `\p{P}` 等 Unicode 字符属性。
+- **解法**：在 `c3runtime.js` 中将该正则表达式包裹在 `try...catch` 中或退化为常规标点范围匹配。

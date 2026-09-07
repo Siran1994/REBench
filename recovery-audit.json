@@ -1,0 +1,29 @@
+{
+  "source": "D:\\Desktop\\REBench\\apk\\Idle Ants - Simulator Game_4.15.22_apkcombo.com.xapk",
+  "engine_result": {
+    "engine": "Unity",
+    "status": "TERMINATE",
+    "action_message": "【终止流程】检测到该 APK 为 Unity 引擎开发，按照流程规范立即终止逆向移植流程！请勿盲目反编译移植。",
+    "details": {
+      "unity_evidence": [
+        "assets/bin/data/managed/metadata/global-metadata.dat",
+        "assets/bin/data/managed/resources/newtonsoft.json.dll-resources.dat",
+        "assets/bin/data/managed/resources/system.data.dll-resources.dat",
+        "assets/bin/data/managed/resources/system.drawing.dll-resources.dat",
+        "assets/bin/data/managed/resources/mscorlib.dll-resources.dat",
+        "lib/arm64-v8a/libunity.so",
+        "lib/armeabi-v7a/libunity.so",
+        "lib/arm64-v8a/libil2cpp.so",
+        "lib/armeabi-v7a/libil2cpp.so",
+        "assets/bin/data/managed/metadata/global-metadata.dat",
+        "assets/bin/data/managed/resources/newtonsoft.json.dll-resources.dat",
+        "assets/bin/data/managed/resources/system.data.dll-resources.dat",
+        "assets/bin/data/managed/resources/system.drawing.dll-resources.dat",
+        "assets/bin/data/managed/resources/mscorlib.dll-resources.dat"
+      ],
+      "c3_evidence": [],
+      "other_evidence": [],
+      "wrapper": null
+    }
+  }
+}

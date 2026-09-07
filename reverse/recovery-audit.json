@@ -1,0 +1,227 @@
+{
+  "engine": "Construct 3",
+  "wrapper": "Cordova",
+  "app_name": "Digger Escape",
+  "app_version": "1.1.9",
+  "package_name": "com.platonovdev.digger.escape",
+  "project_name": "Digger escape",
+  "object_types_count": 165,
+  "families_count": 8,
+  "layouts_count": 5,
+  "layouts": [
+    "game",
+    "basement",
+    "menu",
+    "loader",
+    "gameMobile"
+  ],
+  "event_sheets_count": 6,
+  "event_sheet_stats": [
+    {
+      "name": "_game",
+      "top_level": 72,
+      "total_nodes": 2039
+    },
+    {
+      "name": "_include",
+      "top_level": 23,
+      "total_nodes": 92
+    },
+    {
+      "name": "_menu",
+      "top_level": 14,
+      "total_nodes": 103
+    },
+    {
+      "name": "_loader",
+      "top_level": 5,
+      "total_nodes": 31
+    },
+    {
+      "name": "_monetization",
+      "top_level": 30,
+      "total_nodes": 73
+    },
+    {
+      "name": "_multiplayer",
+      "top_level": 7,
+      "total_nodes": 47
+    }
+  ],
+  "total_logic_nodes": 2385,
+  "tilemap_objects_count": 33,
+  "tilemap_objects": [
+    {
+      "index": 0,
+      "name": "tilemapDirt",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 1,
+      "name": "tilemapStone",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 2,
+      "name": "tilemaCoal",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 3,
+      "name": "tilemapCopper",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 4,
+      "name": "tilemapIron",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 5,
+      "name": "tilemapCristall",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 6,
+      "name": "tilemapDeepStone",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 7,
+      "name": "tilemapUltraDeepStone",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 8,
+      "name": "tilemapMeteor",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 9,
+      "name": "tilemapPolimer",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 10,
+      "name": "dirtRoad",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 11,
+      "name": "TiledBackground",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 12,
+      "name": "TiledBackground2",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 13,
+      "name": "TiledBackground3",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 14,
+      "name": "TiledBackground4",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 15,
+      "name": "TiledBackground5",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 30,
+      "name": "miniTile",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 55,
+      "name": "line",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 58,
+      "name": "fuelCase",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 70,
+      "name": "resultTIle",
+      "plugin": "Tilemap"
+    },
+    {
+      "index": 78,
+      "name": "TiledBackground6",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 80,
+      "name": "blackTile",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 89,
+      "name": "progressCase",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 90,
+      "name": "lineLab",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 92,
+      "name": "graderLab",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 97,
+      "name": "buildProgress",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 104,
+      "name": "TiledBackground7",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 108,
+      "name": "teleportLoaderMini",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 109,
+      "name": "teleportLoaderMax",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 112,
+      "name": "progressTask",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 148,
+      "name": "loaderBar",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 152,
+      "name": "gasFillerOnCar",
+      "plugin": "TiledBg"
+    },
+    {
+      "index": 160,
+      "name": "tiles",
+      "plugin": "Tilemap"
+    }
+  ],
+  "audio_files_count": 44,
+  "features_detected": {
+    "c3runtime": true,
+    "c3main": true,
+    "cordova": true,
+    "tilemap_used": true
+  }
+}
