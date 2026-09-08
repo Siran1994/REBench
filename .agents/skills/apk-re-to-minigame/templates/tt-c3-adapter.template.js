@@ -99,6 +99,44 @@ class MiniImageData {
   }
 }
 
+
+class MiniResponse {
+  constructor(body, init = {}) {
+    this._body = body;
+    this.status = init.status || 200;
+    this.statusText = init.statusText || 'OK';
+    this.ok = this.status >= 200 && this.status < 300;
+    this.headers = new Map(Object.entries(init.headers || {}));
+  }
+  async arrayBuffer() {
+    if (this._body instanceof ArrayBuffer) return this._body;
+    if (this._body && typeof this._body.arrayBuffer === 'function') return await this._body.arrayBuffer();
+    if (this._body && this._body._arrayBuffer) return this._body._arrayBuffer;
+    if (ArrayBuffer.isView(this._body)) {
+      return this._body.buffer.slice(this._body.byteOffset, this._body.byteOffset + this._body.byteLength);
+    }
+    return new ArrayBuffer(0);
+  }
+  async text() {
+    if (typeof this._body === 'string') return this._body;
+    if (this._body && typeof this._body.text === 'function') return await this._body.text();
+    const ab = await this.arrayBuffer();
+    if (typeof TextDecoder !== 'undefined') return new TextDecoder('utf-8').decode(ab);
+    const u8 = new Uint8Array(ab);
+    let s = '';
+    for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+    return s;
+  }
+  async json() {
+    const txt = await this.text();
+    return JSON.parse(txt);
+  }
+  async blob() {
+    if (this._body instanceof MiniBlob) return this._body;
+    return new MiniBlob([this._body]);
+  }
+}
+
 class MiniEvent {
   constructor(type, options = {}) {
     this.type = String(type);
@@ -129,6 +167,7 @@ const _exposeGlobals = (target) => {
   if (!target.ImageData) target.ImageData = MiniImageData;
   if (!target.Event) target.Event = MiniEvent;
   if (!target.CustomEvent) target.CustomEvent = MiniCustomEvent;
+  if (!target.Response) target.Response = MiniResponse;
 };
 
 if (typeof globalThis !== 'undefined') _exposeGlobals(globalThis);
@@ -251,15 +290,15 @@ if (typeof self !== 'undefined') {
 
   // System metrics
   const sysInfo = typeof tt !== 'undefined' && tt.getSystemInfoSync ? tt.getSystemInfoSync() : {
-    windowWidth: 852,
-    windowHeight: 393,
+    windowWidth: 393,
+    windowHeight: 852,
     pixelRatio: 3,
     platform: 'android'
   };
 
   root.devicePixelRatio = sysInfo.pixelRatio || 3;
-  root.innerWidth = sysInfo.windowWidth || 852;
-  root.innerHeight = sysInfo.windowHeight || 393;
+  root.innerWidth = sysInfo.windowWidth || 393;
+  root.innerHeight = sysInfo.windowHeight || 852;
 
   // Window EventTarget Polyfill
   // Window EventTarget Polyfill
@@ -304,20 +343,20 @@ if (typeof self !== 'undefined') {
 
   // Screen & Dimensions Polyfill
   const screenObj = {
-    get width() { return root.innerWidth || 852; },
-    get height() { return root.innerHeight || 393; },
-    get availWidth() { return root.innerWidth || 852; },
-    get availHeight() { return root.innerHeight || 393; },
+    get width() { return root.innerWidth || 393; },
+    get height() { return root.innerHeight || 852; },
+    get availWidth() { return root.innerWidth || 393; },
+    get availHeight() { return root.innerHeight || 852; },
     orientation: {
-      type: 'landscape-primary',
-      angle: 90,
+      type: 'portrait-primary',
+      angle: 0,
       lock: () => Promise.resolve(),
       unlock: () => {}
     }
   };
   root.screen = screenObj;
-  root.outerWidth = root.innerWidth || 852;
-  root.outerHeight = root.innerHeight || 393;
+  root.outerWidth = root.innerWidth || 393;
+  root.outerHeight = root.innerHeight || 852;
   if (typeof window !== 'undefined') {
     window.screen = screenObj;
     window.outerWidth = root.outerWidth;
@@ -362,8 +401,8 @@ if (typeof self !== 'undefined') {
   // VisualViewport Polyfill
   const visualViewportListeners = new Map();
   const visualViewport = {
-    get width() { return root.innerWidth || 852; },
-    get height() { return root.innerHeight || 393; },
+    get width() { return root.innerWidth || 393; },
+    get height() { return root.innerHeight || 852; },
     scale: 1,
     offsetLeft: 0,
     offsetTop: 0,
@@ -394,11 +433,32 @@ if (typeof self !== 'undefined') {
   if (typeof self !== 'undefined') self.visualViewport = visualViewport;
 
 
-  if (!root.getComputedStyle) {
-    root.getComputedStyle = function (el) {
-      return (el && el.style) || {};
-    };
-  }
+  const origGetComputedStyle = root.getComputedStyle;
+  const safeGetComputedStyle = function (el, pseudoElt) {
+    if (origGetComputedStyle) {
+      try {
+        const res = origGetComputedStyle.call(root, el, pseudoElt);
+        if (res) return res;
+      } catch (e) {
+        // Fallback when native getComputedStyle throws Illegal invocation on MiniElement
+      }
+    }
+    const styleObj = (el && el.style) || {};
+    return new Proxy(styleObj, {
+      get(target, prop) {
+        if (prop === 'getPropertyValue') {
+          return function (name) {
+            return target[name] || '';
+          };
+        }
+        return target[prop] || '';
+      }
+    });
+  };
+  root.getComputedStyle = safeGetComputedStyle;
+  if (typeof window !== 'undefined') window.getComputedStyle = safeGetComputedStyle;
+  if (typeof globalThis !== 'undefined') globalThis.getComputedStyle = safeGetComputedStyle;
+  if (typeof self !== 'undefined') self.getComputedStyle = safeGetComputedStyle;
 
   if (!root.scrollTo) root.scrollTo = () => {};
   if (!root.scroll) root.scroll = () => {};
@@ -427,14 +487,33 @@ if (typeof self !== 'undefined') {
   const miniGameImages = new WeakSet();
   const miniGameCanvases = new WeakSet();
 
+  let SafeImage = root.Image;
   if (typeof tt !== 'undefined' && tt.createImage) {
     const origCreateImage = tt.createImage;
-    root.Image = function () {
+    SafeImage = function () {
       const img = origCreateImage.call(tt);
       miniGameImages.add(img);
       return img;
     };
+  } else if (!SafeImage) {
+    SafeImage = function () {
+      const img = {
+        src: '',
+        onload: null,
+        onerror: null,
+        width: 0,
+        height: 0,
+        tagName: 'IMG',
+        nodeName: 'IMG'
+      };
+      miniGameImages.add(img);
+      return img;
+    };
   }
+  root.Image = SafeImage;
+  if (typeof window !== 'undefined') window.Image = SafeImage;
+  if (typeof self !== 'undefined') self.Image = SafeImage;
+  if (typeof globalThis !== 'undefined') globalThis.Image = SafeImage;
 
   if (!root.HTMLImageElement) {
     root.HTMLImageElement = class HTMLImageElement {};
@@ -444,7 +523,7 @@ if (typeof self !== 'undefined') {
       value: function (inst) {
         if (!inst) return false;
         if (miniGameImages.has(inst)) return true;
-        if (inst.tagName === 'IMG') return true;
+        if (inst.tagName === 'IMG' || inst.nodeName === 'IMG') return true;
         if (typeof inst.src === 'string' && typeof inst.onload !== 'undefined') return true;
         return false;
       },
@@ -455,13 +534,17 @@ if (typeof self !== 'undefined') {
   if (!root.HTMLCanvasElement) {
     root.HTMLCanvasElement = class HTMLCanvasElement {};
   }
+  if (!root.HTMLScriptElement) {
+    root.HTMLScriptElement = class HTMLScriptElement {};
+    root.HTMLScriptElement.prototype.noModule = true;
+  }
   try {
     Object.defineProperty(root.HTMLCanvasElement, Symbol.hasInstance, {
       value: function (inst) {
         if (!inst) return false;
         if (miniGameCanvases.has(inst)) return true;
         if (inst === mainCanvas) return true;
-        if (inst.tagName === 'CANVAS') return true;
+        if (inst.tagName === 'CANVAS' || inst.nodeName === 'CANVAS') return true;
         if (typeof inst.getContext === 'function') return true;
         return false;
       },
@@ -485,6 +568,25 @@ if (typeof self !== 'undefined') {
     });
   } catch (e) {}
 
+  if (typeof window !== 'undefined') {
+    window.HTMLImageElement = root.HTMLImageElement;
+    window.HTMLCanvasElement = root.HTMLCanvasElement;
+    window.HTMLScriptElement = root.HTMLScriptElement;
+    window.ImageBitmap = root.ImageBitmap;
+  }
+  if (typeof self !== 'undefined') {
+    self.HTMLImageElement = root.HTMLImageElement;
+    self.HTMLCanvasElement = root.HTMLCanvasElement;
+    self.HTMLScriptElement = root.HTMLScriptElement;
+    self.ImageBitmap = root.ImageBitmap;
+  }
+  if (typeof globalThis !== 'undefined') {
+    globalThis.HTMLImageElement = root.HTMLImageElement;
+    globalThis.HTMLCanvasElement = root.HTMLCanvasElement;
+    globalThis.HTMLScriptElement = root.HTMLScriptElement;
+    globalThis.ImageBitmap = root.ImageBitmap;
+  }
+
   const polyfillCreateImageBitmap = async function (source) {
     if (!source) return null;
     if (typeof ImageData !== 'undefined' && source instanceof ImageData) {
@@ -500,8 +602,9 @@ if (typeof self !== 'undefined') {
     if (root.C3 && typeof root.C3.BlobToImage === 'function' && (source instanceof Blob || (source && typeof source.arrayBuffer === 'function') || source._dataUri || source._path)) {
       return await root.C3.BlobToImage(source);
     }
-    if (source._dataUri || (source._path && globalThis.__diggerEmbeddedImages && globalThis.__diggerEmbeddedImages[source._path])) {
-      const uri = source._dataUri || globalThis.__diggerEmbeddedImages[source._path];
+    const embedded = globalThis.__minersEmbeddedImages || globalThis.__diggerEmbeddedImages || globalThis.__embeddedImages;
+    if (source._dataUri || (source._path && embedded && embedded[source._path])) {
+      const uri = source._dataUri || embedded[source._path];
       return new Promise((resolve, reject) => {
         const img = root.Image ? new root.Image() : (typeof tt !== 'undefined' && tt.createImage ? tt.createImage() : null);
         if (!img) return resolve(source);
@@ -509,6 +612,35 @@ if (typeof self !== 'undefined') {
         img.onerror = reject;
         img.src = uri;
       });
+    }
+    if (source instanceof Blob || (source && typeof source.arrayBuffer === 'function')) {
+      try {
+        let arrayBuf = source._arrayBuffer;
+        if (!arrayBuf && typeof source.arrayBuffer === 'function') {
+          arrayBuf = await source.arrayBuffer();
+        }
+        if (arrayBuf) {
+          let base64 = '';
+          if (typeof tt !== 'undefined' && tt.arrayBufferToBase64) {
+            base64 = tt.arrayBufferToBase64(arrayBuf);
+          } else if (typeof Buffer !== 'undefined') {
+            base64 = Buffer.from(arrayBuf).toString('base64');
+          }
+          if (base64) {
+            const mime = (source && source.type) || 'image/png';
+            const dataUri = `data:${mime};base64,${base64}`;
+            return new Promise((resolve, reject) => {
+              const img = root.Image ? new root.Image() : (typeof tt !== 'undefined' && tt.createImage ? tt.createImage() : null);
+              if (!img) return resolve(source);
+              img.onload = () => resolve(img);
+              img.onerror = reject;
+              img.src = dataUri;
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('[polyfillCreateImageBitmap] ArrayBuffer conversion error:', err);
+      }
     }
     return source;
   };
@@ -664,8 +796,6 @@ if (typeof self !== 'undefined') {
       this.port2.otherPort = this.port1;
     }
   }
-  if (!root.MessageChannel) root.MessageChannel = MiniMessageChannel;
-
   // Worker shim (dispatches in main thread)
   class MiniWorker {
     constructor(url, options) {
@@ -684,9 +814,56 @@ if (typeof self !== 'undefined') {
     dispatchEvent(evt) { for (const fn of this._listeners) fn(evt); }
     terminate() { this._isTerminated = true; }
   }
-  if (!root.Worker) root.Worker = MiniWorker;
 
-  // 6. AudioContext shim
+  root.MessagePort = MiniMessagePort;
+  root.MessageChannel = MiniMessageChannel;
+  root.Worker = MiniWorker;
+  if (typeof globalThis !== 'undefined') {
+    globalThis.MessagePort = MiniMessagePort;
+    globalThis.MessageChannel = MiniMessageChannel;
+    globalThis.Worker = MiniWorker;
+  }
+  if (typeof window !== 'undefined') {
+    window.MessagePort = MiniMessagePort;
+    window.MessageChannel = MiniMessageChannel;
+    window.Worker = MiniWorker;
+  }
+  if (typeof self !== 'undefined') {
+    self.MessagePort = MiniMessagePort;
+    self.MessageChannel = MiniMessageChannel;
+    self.Worker = MiniWorker;
+  }
+
+  // 6. AudioContext & Web Audio API for ByteDance MiniGame (Krypton / Helium / iOS / Android)
+  function ensureAudioParam(param, defaultValue = 0) {
+    if (!param || typeof param !== 'object') {
+      param = { value: defaultValue };
+    }
+    if (typeof param.value !== 'number') param.value = defaultValue;
+    if (typeof param.setValueAtTime !== 'function') {
+      param.setValueAtTime = function (val) { this.value = Number(val); return this; };
+    }
+    if (typeof param.linearRampToValueAtTime !== 'function') {
+      param.linearRampToValueAtTime = function (val) { this.value = Number(val); return this; };
+    }
+    if (typeof param.exponentialRampToValueAtTime !== 'function') {
+      param.exponentialRampToValueAtTime = function (val) { this.value = Number(val); return this; };
+    }
+    if (typeof param.setTargetAtTime !== 'function') {
+      param.setTargetAtTime = function (val) { this.value = Number(val); return this; };
+    }
+    if (typeof param.setValueCurveAtTime !== 'function') {
+      param.setValueCurveAtTime = function () { return this; };
+    }
+    if (typeof param.cancelScheduledValues !== 'function') {
+      param.cancelScheduledValues = function () { return this; };
+    }
+    if (typeof param.cancelAndHoldAtTime !== 'function') {
+      param.cancelAndHoldAtTime = function () { return this; };
+    }
+    return param;
+  }
+
   class MiniAudioContext {
     constructor() {
       this.state = 'running';
@@ -700,15 +877,15 @@ if (typeof self !== 'undefined') {
       this.listener = {
         setPosition(x, y, z) {},
         setOrientation(x, y, z, xUp, yUp, zUp) {},
-        positionX: { value: 0 },
-        positionY: { value: 0 },
-        positionZ: { value: 0 },
-        forwardX: { value: 0 },
-        forwardY: { value: 0 },
-        forwardZ: { value: -1 },
-        upX: { value: 0 },
-        upY: { value: 1 },
-        upZ: { value: 0 }
+        positionX: ensureAudioParam({ value: 0 }, 0),
+        positionY: ensureAudioParam({ value: 0 }, 0),
+        positionZ: ensureAudioParam({ value: 0 }, 0),
+        forwardX: ensureAudioParam({ value: 0 }, 0),
+        forwardY: ensureAudioParam({ value: 0 }, 0),
+        forwardZ: ensureAudioParam({ value: -1 }, -1),
+        upX: ensureAudioParam({ value: 0 }, 0),
+        upY: ensureAudioParam({ value: 1 }, 1),
+        upZ: ensureAudioParam({ value: 0 }, 0)
       };
     }
     createBufferSource() {
@@ -719,14 +896,15 @@ if (typeof self !== 'undefined') {
         stop() {},
         buffer: null,
         loop: false,
-        playbackRate: { value: 1 }
+        playbackRate: ensureAudioParam({ value: 1 }, 1),
+        detune: ensureAudioParam({ value: 0 }, 0)
       };
     }
     createGain() {
       return {
         connect() {},
         disconnect() {},
-        gain: { value: 1, setValueAtTime() {}, linearRampToValueAtTime() {} }
+        gain: ensureAudioParam({ value: 1 }, 1)
       };
     }
     createPanner() {
@@ -735,55 +913,78 @@ if (typeof self !== 'undefined') {
         disconnect() {},
         setPosition() {},
         setOrientation() {},
-        setVelocity() {}
+        setVelocity() {},
+        panningModel: 'HRTF',
+        distanceModel: 'inverse',
+        refDistance: 1,
+        maxDistance: 10000,
+        rolloffFactor: 1,
+        coneInnerAngle: 360,
+        coneOuterAngle: 360,
+        coneOuterGain: 0
       };
     }
     createStereoPanner() {
       return {
         connect() {},
         disconnect() {},
-        pan: { value: 0, setValueAtTime() {}, linearRampToValueAtTime() {} }
+        pan: ensureAudioParam({ value: 0 }, 0)
       };
     }
     createBiquadFilter() {
       return {
         connect() {},
         disconnect() {},
-        frequency: { value: 350 },
-        Q: { value: 1 },
-        gain: { value: 0 }
+        type: 'lowpass',
+        frequency: ensureAudioParam({ value: 350 }, 350),
+        Q: ensureAudioParam({ value: 1 }, 1),
+        gain: ensureAudioParam({ value: 0 }, 0),
+        detune: ensureAudioParam({ value: 0 }, 0)
       };
     }
-    createDelay() {
+    createDelay(maxDelayTime = 1) {
       return {
         connect() {},
         disconnect() {},
-        delayTime: { value: 0 }
+        delayTime: ensureAudioParam({ value: 0 }, 0)
       };
     }
     createConvolver() {
       return {
         connect() {},
         disconnect() {},
-        buffer: null
+        buffer: null,
+        normalize: true
       };
     }
     createDynamicsCompressor() {
       return {
         connect() {},
         disconnect() {},
-        threshold: { value: -24 },
-        knee: { value: 30 },
-        ratio: { value: 12 },
-        attack: { value: 0.003 },
-        release: { value: 0.25 }
+        threshold: ensureAudioParam({ value: -24 }, -24),
+        knee: ensureAudioParam({ value: 30 }, 30),
+        ratio: ensureAudioParam({ value: 12 }, 12),
+        attack: ensureAudioParam({ value: 0.003 }, 0.003),
+        release: ensureAudioParam({ value: 0.25 }, 0.25)
       };
     }
     createWaveShaper() {
       return {
         connect() {},
         disconnect() {},
-        curve: null
+        curve: null,
+        oversample: 'none'
+      };
+    }
+    createOscillator() {
+      return {
+        connect() {},
+        disconnect() {},
+        start() {},
+        stop() {},
+        frequency: ensureAudioParam({ value: 440 }, 440),
+        detune: ensureAudioParam({ value: 0 }, 0),
+        type: 'sine'
       };
     }
     createAnalyser() {
@@ -791,57 +992,319 @@ if (typeof self !== 'undefined') {
         connect() {},
         disconnect() {},
         frequencyBinCount: 1024,
+        fftSize: 2048,
+        smoothingTimeConstant: 0.8,
         getByteFrequencyData() {},
-        getByteTimeDomainData() {}
+        getByteTimeDomainData() {},
+        getFloatFrequencyData() {}
       };
     }
     createMediaStreamSource() {
-      return {
-        connect() {},
-        disconnect() {}
-      };
+      return { connect() {}, disconnect() {} };
     }
     createMediaStreamDestination() {
-      return {
-        connect() {},
-        disconnect() {},
-        stream: {}
-      };
+      return { connect() {}, disconnect() {}, stream: {} };
     }
-    decodeAudioData(buffer, success) {
-      const dummy = { duration: 1, sampleRate: 44100, numberOfChannels: 2 };
-      if (success) success(dummy);
+    createBuffer(numberOfChannels = 1, length = 0, sampleRate = 44100) {
+      return new MiniAudioBuffer(numberOfChannels, length, sampleRate);
+    }
+    decodeAudioData(buffer, success, error) {
+      const dummy = new MiniAudioBuffer(2, Math.round(44100), 44100);
+      if (typeof success === 'function') success(dummy);
       return Promise.resolve(dummy);
     }
     resume() { this.state = 'running'; return Promise.resolve(); }
     suspend() { this.state = 'suspended'; return Promise.resolve(); }
     close() { this.state = 'closed'; return Promise.resolve(); }
   }
-  
-  const NativeAudioContext = root.AudioContext || root.webkitAudioContext || MiniAudioContext;
+
+  class MiniAudioBuffer {
+    constructor(numberOfChannels = 1, length = 0, sampleRate = 44100) {
+      this.numberOfChannels = numberOfChannels || 1;
+      this.length = length || 0;
+      this.sampleRate = sampleRate || 44100;
+      this.duration = this.length > 0 ? this.length / this.sampleRate : 0;
+      this._channels = [];
+      for (let i = 0; i < this.numberOfChannels; i++) {
+        this._channels.push(new Float32Array(this.length));
+      }
+    }
+    getChannelData(channel) {
+      if (channel >= 0 && channel < this.numberOfChannels) {
+        return this._channels[channel];
+      }
+      return new Float32Array(this.length);
+    }
+    copyFromChannel(destination, channelNumber, startInChannel = 0) {
+      const ch = this.getChannelData(channelNumber);
+      destination.set(ch.subarray(startInChannel, startInChannel + destination.length));
+    }
+    copyToChannel(source, channelNumber, startInChannel = 0) {
+      const ch = this.getChannelData(channelNumber);
+      ch.set(source, startInChannel);
+    }
+  }
+
+  const NativeAudioContext = root.AudioContext || root.webkitAudioContext || null;
+
   function SafeAudioContext(options) {
-    const ctx = new NativeAudioContext(options);
+    let ctx = null;
+    if (typeof tt !== 'undefined' && typeof tt.getAudioContext === 'function') {
+      try {
+        ctx = tt.getAudioContext(options);
+        console.log('[C3 Adapter] AudioContext initialized via tt.getAudioContext()');
+      } catch (e) {
+        console.warn('[C3 Adapter] tt.getAudioContext failed:', e);
+      }
+    }
+    if (!ctx && typeof tt !== 'undefined' && typeof tt.getWebAudioContext === 'function') {
+      try {
+        ctx = tt.getWebAudioContext(options);
+        console.log('[C3 Adapter] AudioContext initialized via tt.getWebAudioContext()');
+      } catch (e) {
+        console.warn('[C3 Adapter] tt.getWebAudioContext failed:', e);
+      }
+    }
+    if (!ctx && typeof NativeAudioContext === 'function') {
+      try {
+        ctx = new NativeAudioContext(options);
+        console.log('[C3 Adapter] AudioContext initialized via NativeAudioContext');
+      } catch (e) {
+        console.warn('[C3 Adapter] NativeAudioContext instantiation failed:', e);
+      }
+    }
+    if (!ctx) {
+      ctx = new MiniAudioContext();
+      console.log('[C3 Adapter] AudioContext fallback to MiniAudioContext');
+    }
+
+    // Auto unblock audio on user touch or onShow
+    const unblock = () => {
+      if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+        ctx.resume().catch(() => {});
+      }
+    };
+    if (typeof tt !== 'undefined') {
+      if (tt.onTouchStart) tt.onTouchStart(unblock);
+      if (tt.onTouchEnd) tt.onTouchEnd(unblock);
+      if (tt.onShow) tt.onShow(unblock);
+    }
+
+    // Wrap createGain to guarantee full AudioParam compliance
+    const origCreateGain = typeof ctx.createGain === 'function' ? ctx.createGain.bind(ctx) : null;
+    ctx.createGain = function () {
+      let node = null;
+      if (origCreateGain) {
+        try { node = origCreateGain(); } catch (e) { console.warn('[createGain error]', e); }
+      }
+      if (!node) {
+        node = {
+          connect() {},
+          disconnect() {},
+          gain: { value: 1 }
+        };
+      }
+      ensureAudioParam(node.gain, 1);
+      if (typeof node.connect !== 'function') node.connect = function () {};
+      if (typeof node.disconnect !== 'function') node.disconnect = function () {};
+      return node;
+    };
+
+    // Wrap createStereoPanner
+    const origCreateStereoPanner = typeof ctx.createStereoPanner === 'function' ? ctx.createStereoPanner.bind(ctx) : null;
+    ctx.createStereoPanner = function () {
+      let node = null;
+      if (origCreateStereoPanner) {
+        try { node = origCreateStereoPanner(); } catch (e) {}
+      }
+      if (!node) {
+        node = {
+          connect() {},
+          disconnect() {},
+          pan: { value: 0 }
+        };
+      }
+      ensureAudioParam(node.pan, 0);
+      if (typeof node.connect !== 'function') node.connect = function () {};
+      if (typeof node.disconnect !== 'function') node.disconnect = function () {};
+      return node;
+    };
+
+    // Wrap createBufferSource
+    const origCreateBufferSource = typeof ctx.createBufferSource === 'function' ? ctx.createBufferSource.bind(ctx) : null;
+    ctx.createBufferSource = function () {
+      let node = null;
+      if (origCreateBufferSource) {
+        try { node = origCreateBufferSource(); } catch (e) {}
+      }
+      if (!node) {
+        node = {
+          connect() {},
+          disconnect() {},
+          start() {},
+          stop() {},
+          buffer: null,
+          loop: false,
+          playbackRate: { value: 1 }
+        };
+      }
+      ensureAudioParam(node.playbackRate, 1);
+      if (node.detune) ensureAudioParam(node.detune, 0);
+      if (typeof node.connect !== 'function') node.connect = function () {};
+      if (typeof node.disconnect !== 'function') node.disconnect = function () {};
+      if (typeof node.start !== 'function') node.start = function () {};
+      if (typeof node.stop !== 'function') node.stop = function () {};
+      return node;
+    };
+
+    // Wrap createBiquadFilter
+    const origBiquad = typeof ctx.createBiquadFilter === 'function' ? ctx.createBiquadFilter.bind(ctx) : null;
+    ctx.createBiquadFilter = function () {
+      let node = null;
+      if (origBiquad) {
+        try { node = origBiquad(); } catch (e) {}
+      }
+      if (!node) {
+        node = {
+          connect() {},
+          disconnect() {},
+          frequency: { value: 350 },
+          Q: { value: 1 },
+          gain: { value: 0 }
+        };
+      }
+      ensureAudioParam(node.frequency, 350);
+      ensureAudioParam(node.Q, 1);
+      ensureAudioParam(node.gain, 0);
+      if (node.detune) ensureAudioParam(node.detune, 0);
+      if (typeof node.connect !== 'function') node.connect = function () {};
+      if (typeof node.disconnect !== 'function') node.disconnect = function () {};
+      return node;
+    };
+
+    if (!ctx.createPanner) {
+      ctx.createPanner = function () {
+        return {
+          connect() {},
+          disconnect() {},
+          setPosition() {},
+          setOrientation() {},
+          setVelocity() {},
+          panningModel: 'HRTF',
+          distanceModel: 'inverse',
+          refDistance: 1,
+          maxDistance: 10000,
+          rolloffFactor: 1,
+          coneInnerAngle: 360,
+          coneOuterAngle: 360,
+          coneOuterGain: 0
+        };
+      };
+    }
+
     if (!ctx.listener) {
       ctx.listener = {
         setPosition: () => {},
         setOrientation: () => {}
       };
     } else {
-      if (!ctx.listener.setPosition) ctx.listener.setPosition = () => {};
-      if (!ctx.listener.setOrientation) ctx.listener.setOrientation = () => {};
+      if (typeof ctx.listener.setPosition !== 'function') ctx.listener.setPosition = () => {};
+      if (typeof ctx.listener.setOrientation !== 'function') ctx.listener.setOrientation = () => {};
     }
+
+    if (!ctx.createBuffer) {
+      ctx.createBuffer = function (numberOfChannels, length, sampleRate) {
+        return new MiniAudioBuffer(numberOfChannels, length, sampleRate);
+      };
+    }
+
+    if (!ctx.destination) {
+      ctx.destination = { connect() {}, disconnect() {} };
+    }
+
+    if (!ctx.resume) {
+      ctx.resume = function () { ctx.state = 'running'; return Promise.resolve(); };
+    }
+    if (!ctx.suspend) {
+      ctx.suspend = function () { ctx.state = 'suspended'; return Promise.resolve(); };
+    }
+
+    const origDecodeAudioData = typeof ctx.decodeAudioData === 'function' ? ctx.decodeAudioData.bind(ctx) : null;
+    ctx.decodeAudioData = function (arrayBuffer, successCallback, errorCallback) {
+      const g = (typeof globalThis !== 'undefined') ? globalThis : (typeof window !== 'undefined' ? window : self);
+      const u8 = arrayBuffer ? new Uint8Array(arrayBuffer) : new Uint8Array(0);
+      const isWebM = u8.length >= 4 && u8[0] === 0x1A && u8[1] === 0x45 && u8[2] === 0xDF && u8[3] === 0xA3;
+
+      const doOpusDecode = () => {
+        if (g && g.JobHandlers && typeof g.JobHandlers['OpusDecode'] === 'function') {
+          return g.JobHandlers['OpusDecode']({ arrayBuffer }).then(res => {
+            const floats = new Float32Array(res.result);
+            const audioBuffer = ctx.createBuffer(1, floats.length, 48000);
+            audioBuffer.getChannelData(0).set(floats);
+            if (typeof successCallback === 'function') successCallback(audioBuffer);
+            return audioBuffer;
+          }).catch(err => {
+            console.error('[AudioContext] OpusDecode failed:', err);
+            if (typeof errorCallback === 'function') errorCallback(err);
+            throw err;
+          });
+        }
+        const err = new Error('Opus decoder not available');
+        if (typeof errorCallback === 'function') errorCallback(err);
+        return Promise.reject(err);
+      };
+
+      if (isWebM) {
+        return doOpusDecode();
+      }
+
+      if (origDecodeAudioData) {
+        try {
+          const p = origDecodeAudioData(arrayBuffer, (buf) => {
+            if (typeof successCallback === 'function') successCallback(buf);
+          }, (err) => {
+            console.warn('[AudioContext] Native decodeAudioData error, attempting Opus fallback:', err);
+            doOpusDecode().catch(e => {
+              if (typeof errorCallback === 'function') errorCallback(err || e);
+            });
+          });
+          if (p && typeof p.catch === 'function') {
+            p.catch(() => {
+              doOpusDecode().catch(() => {});
+            });
+          }
+          return p;
+        } catch (err) {
+          return doOpusDecode().catch(e => {
+            if (typeof errorCallback === 'function') errorCallback(err || e);
+            return Promise.reject(err || e);
+          });
+        }
+      } else {
+        return doOpusDecode();
+      }
+    };
+
     return ctx;
   }
-  SafeAudioContext.prototype = NativeAudioContext.prototype;
+  SafeAudioContext.prototype = (NativeAudioContext && NativeAudioContext.prototype) || MiniAudioContext.prototype;
   root.AudioContext = SafeAudioContext;
   root.webkitAudioContext = SafeAudioContext;
+  root.AudioBuffer = MiniAudioBuffer;
   if (typeof window !== 'undefined') {
     window.AudioContext = SafeAudioContext;
     window.webkitAudioContext = SafeAudioContext;
+    window.AudioBuffer = MiniAudioBuffer;
   }
   if (typeof globalThis !== 'undefined') {
     globalThis.AudioContext = SafeAudioContext;
     globalThis.webkitAudioContext = SafeAudioContext;
+    globalThis.AudioBuffer = MiniAudioBuffer;
+  }
+  if (typeof self !== 'undefined') {
+    self.AudioContext = SafeAudioContext;
+    self.webkitAudioContext = SafeAudioContext;
+    self.AudioBuffer = MiniAudioBuffer;
   }
 
 
@@ -947,21 +1410,21 @@ if (typeof self !== 'undefined') {
           this.dispatchEvent({ type: 'canplay' });
         }, 0);
       };
-      this.currentTime = 0;
-      this.duration = 1;
-      this.playbackRate = 1;
-      this.loop = false;
-      this.muted = false;
-      this.volume = 1;
-      this.videoWidth = 0;
-      this.videoHeight = 0;
-      this.paused = true;
-      this.ended = false;
-      this.readyState = 4;
-      this.crossOrigin = '';
-      this.playsInline = true;
-      this.requestVideoFrameCallback = null;
-      this.cancelVideoFrameCallback = null;
+      try { this.currentTime = 0; } catch (e) {}
+      try { this.duration = 1; } catch (e) {}
+      try { this.playbackRate = 1; } catch (e) {}
+      try { this.loop = false; } catch (e) {}
+      try { this.muted = false; } catch (e) {}
+      try { this.volume = 1; } catch (e) {}
+      try { this.videoWidth = 0; } catch (e) {}
+      try { this.videoHeight = 0; } catch (e) {}
+      try { this.paused = true; } catch (e) {}
+      try { this.ended = false; } catch (e) {}
+      try { this.readyState = 4; } catch (e) {}
+      try { this.crossOrigin = ''; } catch (e) {}
+      try { this.playsInline = true; } catch (e) {}
+      try { this.requestVideoFrameCallback = null; } catch (e) {}
+      try { this.cancelVideoFrameCallback = null; } catch (e) {}
     }
     setAttribute(k, v) {
       this.attributes[k] = String(v);
@@ -1062,10 +1525,10 @@ if (typeof self !== 'undefined') {
     getBoundingClientRect() {
       return {
         left: 0, top: 0,
-        width: root.innerWidth || 852,
-        height: root.innerHeight || 393,
-        right: root.innerWidth || 852,
-        bottom: root.innerHeight || 393,
+        width: root.innerWidth || 393,
+        height: root.innerHeight || 852,
+        right: root.innerWidth || 393,
+        bottom: root.innerHeight || 852,
         x: 0, y: 0
       };
     }
@@ -1123,7 +1586,140 @@ if (typeof self !== 'undefined') {
   class MiniAudio extends MiniElement {
     constructor(src) {
       super('AUDIO');
+      this._src = '';
+      this._duration = 0;
+      this._paused = true;
+      this._ended = false;
+      this._innerAudio = (typeof tt !== 'undefined' && typeof tt.createInnerAudioContext === 'function')
+        ? tt.createInnerAudioContext()
+        : null;
+      this._listeners = new Map();
+      this.autoplay = false;
+      this.loop = false;
+      this.preload = 'auto';
+
+      if (this._innerAudio) {
+        this._innerAudio.onCanplay(() => this._emit('canplay'));
+        this._innerAudio.onPlay(() => {
+          this._paused = false;
+          this._ended = false;
+          this._emit('play');
+        });
+        this._innerAudio.onPause(() => {
+          this._paused = true;
+          this._emit('pause');
+        });
+        this._innerAudio.onStop(() => {
+          this._paused = true;
+          this._ended = true;
+          this._emit('ended');
+        });
+        this._innerAudio.onEnded(() => {
+          this._paused = true;
+          this._ended = true;
+          this._emit('ended');
+        });
+        this._innerAudio.onError((err) => this._emit('error', err));
+      }
+
       if (src) this.src = src;
+    }
+
+    get src() { return this._src; }
+    set src(val) {
+      this._src = val;
+      if (this._innerAudio && val) {
+        let clean = String(val);
+        if (clean.startsWith('https://minigame.local/')) clean = clean.substring('https://minigame.local/'.length);
+        if (clean.startsWith('file:///')) clean = clean.substring('file:///'.length);
+        if (clean.startsWith('./')) clean = clean.substring(2);
+        if (clean.startsWith('/')) clean = clean.substring(1);
+        this._innerAudio.src = clean;
+      }
+    }
+
+    get currentTime() { return this._innerAudio ? (this._innerAudio.currentTime || 0) : 0; }
+    set currentTime(val) { if (this._innerAudio) this._innerAudio.seek(val); }
+
+    get duration() { return this._innerAudio ? (this._innerAudio.duration || this._duration || 0) : (this._duration || 0); }
+    set duration(val) { this._duration = Number(val) || 0; }
+
+    get volume() { return this._innerAudio ? this._innerAudio.volume : 1; }
+    set volume(val) { if (this._innerAudio) this._innerAudio.volume = Math.max(0, Math.min(1, val)); }
+
+    get muted() { return this.volume === 0; }
+    set muted(val) { if (this._innerAudio) this._innerAudio.volume = val ? 0 : 1; }
+
+    get playbackRate() { return this._innerAudio ? (this._innerAudio.playbackRate || 1) : 1; }
+    set playbackRate(val) { if (this._innerAudio && this._innerAudio.playbackRate !== undefined) this._innerAudio.playbackRate = val; }
+
+    get paused() { return this._innerAudio ? (this._innerAudio.paused !== false) : (this._paused !== false); }
+    set paused(val) { this._paused = !!val; }
+
+    get readyState() { return 4; }
+    set readyState(val) {}
+
+    get ended() { return this._innerAudio ? (this._innerAudio.ended || false) : (this._ended || false); }
+    set ended(val) { this._ended = !!val; }
+
+    play() {
+      this._paused = false;
+      this._ended = false;
+      if (this._innerAudio) {
+        this._innerAudio.loop = this.loop;
+        this._innerAudio.play();
+      }
+      return Promise.resolve();
+    }
+
+    pause() {
+      this._paused = true;
+      if (this._innerAudio) {
+        this._innerAudio.pause();
+      }
+    }
+
+    canPlayType(mime) {
+      if (!mime) return '';
+      const m = String(mime).toLowerCase();
+      if (m.includes('webm') || m.includes('opus') || m.includes('vorbis') || m.includes('ogg')) {
+        return '';
+      }
+      if (
+        m.includes('mp4') ||
+        m.includes('h264') ||
+        m.includes('avc1') ||
+        m.includes('mp3') ||
+        m.includes('mpeg') ||
+        m.includes('m4a') ||
+        m.includes('aac') ||
+        m.includes('wav')
+      ) {
+        return 'maybe';
+      }
+      return '';
+    }
+
+    addEventListener(type, cb) {
+      if (!this._listeners.has(type)) this._listeners.set(type, new Set());
+      this._listeners.get(type).add(cb);
+    }
+
+    removeEventListener(type, cb) {
+      if (this._listeners.has(type)) {
+        this._listeners.get(type).delete(cb);
+      }
+    }
+
+    _emit(type, data) {
+      const set = this._listeners.get(type);
+      if (set) {
+        const evt = { type, target: this, ...data };
+        set.forEach(cb => { try { cb(evt); } catch (e) {} });
+      }
+      if (typeof this['on' + type] === 'function') {
+        try { this['on' + type]({ type, target: this, ...data }); } catch (e) {}
+      }
     }
   }
 
@@ -1269,21 +1865,22 @@ if (typeof self !== 'undefined') {
       mainCanvas.style.position = 'absolute';
       mainCanvas.style.left = '0px';
       mainCanvas.style.top = '0px';
-      mainCanvas.style.width = (root.innerWidth || 852) + 'px';
-      mainCanvas.style.height = (root.innerHeight || 393) + 'px';
+      mainCanvas.style.display = 'block';
+      mainCanvas.style.width = (root.innerWidth || 393) + 'px';
+      mainCanvas.style.height = (root.innerHeight || 852) + 'px';
 
-      const targetW = Math.round((root.innerWidth || 852) * (root.devicePixelRatio || 1));
-      const targetH = Math.round((root.innerHeight || 393) * (root.devicePixelRatio || 1));
+      const targetW = Math.round((root.innerWidth || 393) * (root.devicePixelRatio || 1));
+      const targetH = Math.round((root.innerHeight || 852) * (root.devicePixelRatio || 1));
       if (!mainCanvas.width || mainCanvas.width === 0) mainCanvas.width = targetW;
       if (!mainCanvas.height || mainCanvas.height === 0) mainCanvas.height = targetH;
 
       if (!mainCanvas.getBoundingClientRect) {
         mainCanvas.getBoundingClientRect = () => ({
           left: 0, top: 0,
-          width: root.innerWidth || 852,
-          height: root.innerHeight || 393,
-          right: root.innerWidth || 852,
-          bottom: root.innerHeight || 393,
+          width: root.innerWidth || 393,
+          height: root.innerHeight || 852,
+          right: root.innerWidth || 393,
+          bottom: root.innerHeight || 852,
           x: 0, y: 0
         });
       }
@@ -1294,6 +1891,20 @@ if (typeof self !== 'undefined') {
         mainCanvas.remove = function () {
           if (this.parentElement) this.parentElement.removeChild(this);
         };
+      }
+      if (!mainCanvas.getContext) {
+        const mockContext = {
+          fillStyle: '',
+          fillRect: () => {},
+          drawImage: () => {},
+          getImageData: () => ({ data: new Uint8Array(4) }),
+          measureText: () => ({ width: 0 }),
+          clearRect: () => {},
+          save: () => {},
+          restore: () => {},
+          getExtension: () => ({})
+        };
+        mainCanvas.getContext = (type) => mockContext;
       }
       const canvasListeners = new Map();
       mainCanvas.addEventListener = function (type, fn, opt) {
@@ -1342,7 +1953,7 @@ if (typeof self !== 'undefined') {
       this.scrollingElement = { scrollTop: 0, scrollLeft: 0 };
       this.activeElement = null;
       this.referrer = '';
-      this.title = 'Digger Escape';
+      this.title = 'Tiny Miners';
       this.fonts = {
         add(font) {},
         delete(font) { return false; },
@@ -1420,7 +2031,7 @@ if (typeof self !== 'undefined') {
       if (!c.remove) c.remove = function() { if (this.parentElement) this.parentElement.removeChild(this); };
       if (!c.transferControlToOffscreen) c.transferControlToOffscreen = () => c;
       if (!c.getBoundingClientRect) c.getBoundingClientRect = () => ({
-        left: 0, top: 0, width: root.innerWidth || 852, height: root.innerHeight || 393
+        left: 0, top: 0, width: root.innerWidth || 393, height: root.innerHeight || 852
       });
       miniGameCanvases.add(c);
       return c;
@@ -1429,6 +2040,9 @@ if (typeof self !== 'undefined') {
       const img = typeof tt !== 'undefined' && tt.createImage ? tt.createImage() : new MiniElement('IMG');
       miniGameImages.add(img);
       return img;
+    }
+    if (t === 'audio') {
+      return new MiniAudio();
     }
     return new MiniElement(tag);
   }
@@ -1811,7 +2425,7 @@ if (typeof self !== 'undefined') {
       }
 
       // Check in-memory embedded assets (subpackage images)
-      const embeddedMap = globalThis.__diggerEmbeddedImages;
+      const embeddedMap = globalThis.__minersEmbeddedImages || globalThis.__embeddedAssets || globalThis.__diggerEmbeddedImages;
       let embeddedDataUri = null;
       if (embeddedMap) {
         if (embeddedMap[this._cleanPath]) embeddedDataUri = embeddedMap[this._cleanPath];
@@ -1966,8 +2580,75 @@ if (typeof self !== 'undefined') {
 
     const cleanPath = path.split('?')[0].split('#')[0];
 
+    // 0. Direct in-memory pass-through for data.json
+    if (cleanPath === 'data.json' || cleanPath === 'data/data.json' || cleanPath.endsWith('/data.json')) {
+      let dataObj = globalThis.__c3DataJson;
+      if (!dataObj && typeof tt !== 'undefined' && tt.getFileSystemManager) {
+        try {
+          const fs = tt.getFileSystemManager();
+          const content = fs.readFileSync('data/data.json', 'utf8');
+          dataObj = JSON.parse(content);
+          globalThis.__c3DataJson = dataObj;
+        } catch (e) {}
+      }
+      if (!dataObj && typeof require === 'function') {
+        try { dataObj = require('./data/data.json'); } catch (e) {}
+      }
+      if (dataObj) {
+        const textVal = typeof dataObj === 'string' ? dataObj : JSON.stringify(dataObj);
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'application/json']]),
+          text: () => Promise.resolve(textVal),
+          json: () => Promise.resolve(typeof dataObj === 'string' ? JSON.parse(dataObj) : dataObj),
+          blob: () => Promise.resolve(typeof Blob !== 'undefined' ? new Blob([textVal], { type: 'application/json' }) : { size: textVal.length }),
+          arrayBuffer: () => Promise.resolve((typeof TextEncoder !== 'undefined' ? new TextEncoder().encode(textVal).buffer : null))
+        });
+      }
+    }
+
+    // 0.1 Direct read for noise.wasm
+    if (cleanPath === 'noise.wasm' || cleanPath.endsWith('/noise.wasm')) {
+      let wasmBuf = null;
+      if (typeof tt !== 'undefined' && tt.getFileSystemManager) {
+        try { wasmBuf = tt.getFileSystemManager().readFileSync('noise.wasm'); } catch (e) {}
+      }
+      if (!wasmBuf && typeof require === 'function') {
+        try {
+          const fs = require('fs');
+          const path = require('path');
+          const candidates = [
+            path.resolve('noise.wasm'),
+            path.resolve(__dirname, '../noise.wasm'),
+            path.resolve(__dirname, 'noise.wasm')
+          ];
+          for (const c of candidates) {
+            if (fs.existsSync(c)) { wasmBuf = fs.readFileSync(c); break; }
+          }
+        } catch (e) {}
+      }
+      if (wasmBuf) {
+        let ab = wasmBuf;
+        if (ArrayBuffer.isView(wasmBuf)) {
+          ab = wasmBuf.buffer.slice(wasmBuf.byteOffset, wasmBuf.byteOffset + wasmBuf.byteLength);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'application/wasm']]),
+          text: () => Promise.resolve(''),
+          json: () => Promise.reject(new Error('WASM is not JSON')),
+          blob: () => Promise.resolve(typeof Blob !== 'undefined' ? new Blob([ab], { type: 'application/wasm' }) : { size: ab.byteLength }),
+          arrayBuffer: () => Promise.resolve(ab)
+        });
+      }
+    }
+
     // 1. Check in-memory embedded assets (subpackage images)
-    const embeddedMap = globalThis.__diggerEmbeddedImages;
+    const embeddedMap = globalThis.__minersEmbeddedImages || globalThis.__embeddedAssets || globalThis.__diggerEmbeddedImages;
     let embeddedDataUri = null;
     if (embeddedMap) {
       if (embeddedMap[cleanPath]) embeddedDataUri = embeddedMap[cleanPath];
@@ -2041,7 +2722,7 @@ if (typeof self !== 'undefined') {
         if (typeof buf === 'string') {
           textVal = buf;
           arrayBuf = (typeof TextEncoder !== 'undefined') ? new TextEncoder().encode(buf).buffer : null;
-        } else if (buf instanceof ArrayBuffer) {
+        } else if (buf instanceof ArrayBuffer || (buf && Object.prototype.toString.call(buf) === '[object ArrayBuffer]')) {
           arrayBuf = buf;
           if (typeof TextDecoder !== 'undefined') {
             textVal = new TextDecoder('utf-8').decode(new Uint8Array(buf));
@@ -2051,12 +2732,12 @@ if (typeof self !== 'undefined') {
             for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
             try { textVal = decodeURIComponent(escape(s)); } catch (e) { textVal = s; }
           }
-        } else if (buf && buf.buffer) {
+        } else if (ArrayBuffer.isView(buf) || (buf && buf.buffer)) {
           arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
           if (typeof TextDecoder !== 'undefined') {
             textVal = new TextDecoder('utf-8').decode(buf);
           } else {
-            const u8 = new Uint8Array(buf);
+            const u8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
             let s = '';
             for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
             try { textVal = decodeURIComponent(escape(s)); } catch (e) { textVal = s; }
@@ -2133,6 +2814,9 @@ if (typeof self !== 'undefined') {
     }
     return Promise.reject(new Error('No fetch implementation for: ' + cleanPath));
   };
+  if (typeof globalThis !== 'undefined') globalThis.fetch = root.fetch;
+  if (typeof window !== 'undefined') window.fetch = root.fetch;
+  if (typeof self !== 'undefined') self.fetch = root.fetch;
 
   // 12. Touch & Pointer Events
   function setupTouchEvents() {
@@ -2229,3 +2913,33 @@ if (typeof self !== 'undefined') {
       });
     }
   }
+
+
+if (typeof WebAssembly !== 'undefined') {
+  const origInstantiateStreaming = WebAssembly.instantiateStreaming;
+  WebAssembly.instantiateStreaming = async function (resp, importObject) {
+    let buf = null;
+    try {
+      const response = await resp;
+      if (response && typeof response.arrayBuffer === 'function') {
+        buf = await response.arrayBuffer();
+      } else if (response && response._arrayBuffer) {
+        buf = response._arrayBuffer;
+      }
+      if (buf) {
+        return await WebAssembly.instantiate(buf, importObject);
+      }
+      if (origInstantiateStreaming) {
+        return await origInstantiateStreaming(resp, importObject);
+      }
+    } catch (e) {
+      if (buf) {
+        try {
+          return await WebAssembly.instantiate(buf, importObject);
+        } catch (e2) {}
+      }
+      console.warn('[WebAssembly] instantiateStreaming error:', e);
+      throw e;
+    }
+  };
+}

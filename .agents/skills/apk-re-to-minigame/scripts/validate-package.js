@@ -109,12 +109,19 @@ function validateProject(projectDir) {
     if (!adapterCode.includes('visualViewport')) {
       warnings.push(`'tt-c3-adapter.js' does not contain 'visualViewport' polyfill. Android may experience black screen!`);
     }
+    if (!adapterCode.includes('ensureAudioParam') && !adapterCode.includes('cancelScheduledValues')) {
+      warnings.push(`'tt-c3-adapter.js' missing 'ensureAudioParam' (cancelScheduledValues). Android Krypton may crash on audio stops/fades!`);
+    }
+    if (!adapterCode.includes('SafeAudioContext') && !adapterCode.includes('tt.getAudioContext')) {
+      warnings.push(`'tt-c3-adapter.js' may lack 'tt.getAudioContext()' bridge. Audio playback could fail on real devices!`);
+    }
   }
 
-  // 6. Check Syntax & Reserved Word Conflicts (SWC Parser issues)
+  // 6. Check Syntax & Reserved Word Conflicts (SWC Parser & GLSL ES 1.00 issues)
   const scriptsToCheck = [
     path.join(root, 'scripts', 'objRefTable.js'),
-    path.join(root, 'scripts', 'modernjscheck.js')
+    path.join(root, 'scripts', 'modernjscheck.js'),
+    path.join(root, 'scripts', 'c3runtime.js')
   ];
 
   for (const scriptPath of scriptsToCheck) {
@@ -125,6 +132,12 @@ function validateProject(projectDir) {
       }
       if (scriptPath.endsWith('modernjscheck.js') && code.includes('#p')) {
         warnings.push(`'modernjscheck.js' contains private field syntax (#p). Verify it does not cause syntax error in older minigame engines.`);
+      }
+      if (scriptPath.endsWith('c3runtime.js')) {
+        const nonConstRegex = /(?:precision\s+\w+\s+float;[\s\S]{1,500}?(?:highp|mediump|lowp)\s+float\s+\w+\s*=\s*u_\w+;)/;
+        if (nonConstRegex.test(code)) {
+          warnings.push(`'c3runtime.js' detected potential non-constant global variable initialization in GLSL shader strings. Android Krypton GLSL ES 1.00 may throw S0012!`);
+        }
       }
     }
   }

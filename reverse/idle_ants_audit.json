@@ -1,0 +1,185 @@
+{
+  "source": "D:\\Desktop\\REBench\\reverse\\idle_ants_package",
+  "engine_result": {
+    "engine": "Construct 3",
+    "status": "PROCEED",
+    "wrapper": "Web/HTML5",
+    "action_message": "【通过门禁】检测到该 APK 为 Construct 3 (Web/HTML5) 引擎开发，允许继续执行完整抖音小游戏移植流程！",
+    "details": {
+      "unity_evidence": [],
+      "c3_evidence": [
+        "scripts/c3runtime.js",
+        "data.json",
+        "images/buttonshine-sheet0.png",
+        "images/clouds-sheet0.png",
+        "images/flashantskin-sheet0.png",
+        "images/foodback3-sheet0.png",
+        "images/foodback3-sheet1.png",
+        "scripts/main.js"
+      ],
+      "other_evidence": [],
+      "wrapper": "Web/HTML5"
+    }
+  },
+  "audit": {
+    "engine": "Construct 3",
+    "app_name": "Idle Ants Poki",
+    "app_version": null,
+    "object_types_count": 138,
+    "families_count": 5,
+    "layouts_count": 21,
+    "layouts": [
+      "Worlds Menu",
+      "Transition",
+      "Confetti",
+      "GUI",
+      "Progress",
+      "PopUp",
+      "Tutorial",
+      "Animation",
+      "Basic",
+      "The Garden",
+      "The Beach",
+      "The Kitchen",
+      "The Fairground",
+      "The Street",
+      "The Field",
+      "The Office",
+      "The Playground",
+      "_Layout_Template",
+      "Loading",
+      "Level",
+      "Object Bank"
+    ],
+    "event_sheets_count": 28,
+    "event_sheet_stats": [
+      {
+        "name": "C Transition",
+        "top_level": 2
+      },
+      {
+        "name": "C Progress",
+        "top_level": 3
+      },
+      {
+        "name": "C Confetti",
+        "top_level": 2
+      },
+      {
+        "name": "C GUI",
+        "top_level": 9
+      },
+      {
+        "name": "C PopUp",
+        "top_level": 6
+      },
+      {
+        "name": "M Side Button",
+        "top_level": 1
+      },
+      {
+        "name": "M Confetti",
+        "top_level": 1
+      },
+      {
+        "name": "M Transition",
+        "top_level": 1
+      },
+      {
+        "name": "M Upgrade Button",
+        "top_level": 1
+      },
+      {
+        "name": "M VFX",
+        "top_level": 1
+      },
+      {
+        "name": "M World Menu",
+        "top_level": 1
+      },
+      {
+        "name": "M Top UI",
+        "top_level": 1
+      },
+      {
+        "name": "M PopUp",
+        "top_level": 1
+      },
+      {
+        "name": "M UI Scaling",
+        "top_level": 1
+      },
+      {
+        "name": "M Audio",
+        "top_level": 1
+      },
+      {
+        "name": "M Language",
+        "top_level": 1
+      },
+      {
+        "name": "M Food",
+        "top_level": 1
+      },
+      {
+        "name": "M Ants",
+        "top_level": 1
+      },
+      {
+        "name": "M Money",
+        "top_level": 1
+      },
+      {
+        "name": "M Progress",
+        "top_level": 1
+      },
+      {
+        "name": "M Tuto",
+        "top_level": 1
+      },
+      {
+        "name": "M Save",
+        "top_level": 1
+      },
+      {
+        "name": "M World",
+        "top_level": 1
+      },
+      {
+        "name": "M Monetisation",
+        "top_level": 1
+      },
+      {
+        "name": "M Skins",
+        "top_level": 1
+      },
+      {
+        "name": "C Level",
+        "top_level": 2
+      },
+      {
+        "name": "C Loading",
+        "top_level": 2
+      },
+      {
+        "name": "INDEX",
+        "top_level": 24
+      }
+    ],
+    "total_logic_nodes": 70,
+    "tilemap_objects_count": 0,
+    "tilemap_objects": [],
+    "audio_files_count": 43,
+    "fonts_count": 1,
+    "fonts": [
+      "ChangaOne-Regular"
+    ],
+    "plugins_detected": [],
+    "features_detected": {
+      "c3runtime": true,
+      "c3main": false,
+      "cordova": false,
+      "tilemap_used": false
+    }
+  }
+}

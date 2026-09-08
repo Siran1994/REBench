@@ -130,12 +130,50 @@ class MiniCustomEvent extends MiniEvent {
   }
 }
 
+class MiniResponse {
+  constructor(body, init = {}) {
+    this._body = body;
+    this.status = init.status || 200;
+    this.statusText = init.statusText || 'OK';
+    this.ok = this.status >= 200 && this.status < 300;
+    this.headers = new Map(Object.entries(init.headers || {}));
+  }
+  async arrayBuffer() {
+    if (this._body instanceof ArrayBuffer) return this._body;
+    if (this._body && typeof this._body.arrayBuffer === 'function') return await this._body.arrayBuffer();
+    if (this._body && this._body._arrayBuffer) return this._body._arrayBuffer;
+    if (ArrayBuffer.isView(this._body)) {
+      return this._body.buffer.slice(this._body.byteOffset, this._body.byteOffset + this._body.byteLength);
+    }
+    return new ArrayBuffer(0);
+  }
+  async text() {
+    if (typeof this._body === 'string') return this._body;
+    if (this._body && typeof this._body.text === 'function') return await this._body.text();
+    const ab = await this.arrayBuffer();
+    if (typeof TextDecoder !== 'undefined') return new TextDecoder('utf-8').decode(ab);
+    const u8 = new Uint8Array(ab);
+    let s = '';
+    for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+    return s;
+  }
+  async json() {
+    const txt = await this.text();
+    return JSON.parse(txt);
+  }
+  async blob() {
+    if (this._body instanceof MiniBlob) return this._body;
+    return new MiniBlob([this._body]);
+  }
+}
+
 // Global registrations
 const _exposeGlobals = (target) => {
   if (!target) return;
   if (!target.Blob) target.Blob = MiniBlob;
   if (!target.File) target.File = MiniFile;
   if (!target.ImageData) target.ImageData = MiniImageData;
+  if (!target.Response) target.Response = MiniResponse;
   if (!target.Event) target.Event = MiniEvent;
   if (!target.CustomEvent) target.CustomEvent = MiniCustomEvent;
 };
@@ -227,6 +265,19 @@ if (typeof window !== 'undefined') {
   window.C3_IsSupported = true;
 }
 
+// Set & Lock Device Orientation (adjust to 'landscape' or 'portrait' based on game.json)
+if (typeof tt !== 'undefined') {
+  const applyOrientation = () => {
+    if (tt.setDeviceOrientation) {
+      try {
+        tt.setDeviceOrientation({ value: 'landscape' }); // or 'portrait'
+      } catch (e) {}
+    }
+  };
+  applyOrientation();
+  if (tt.onShow) tt.onShow(applyOrientation);
+}
+
 // Dynamic script loader for Construct 3 runtime scripts
 globalThis.__loadScript = async function (src) {
   let clean = src;
@@ -247,10 +298,7 @@ globalThis.__loadScript = async function (src) {
   }
 };
 
-// 4. Import main game logic
-require('./scripts/main.js');
-
-// 5. Preload subpackages before dispatching deviceready
+// Subpackage Preloader
 function loadSub(name) {
   return new Promise((resolve) => {
     if (typeof tt === 'undefined' || !tt.loadSubpackage) return resolve();
@@ -273,19 +321,29 @@ function loadSub(name) {
   });
 }
 
-// 6. Trigger deviceready lifecycle event for Cordova-wrapped exports
+// Trigger deviceready lifecycle event for Cordova-wrapped exports
 let devicereadyFired = false;
 function triggerDeviceReady() {
   if (devicereadyFired) return;
   devicereadyFired = true;
+  if (typeof window !== 'undefined') window.__devicereadyFired = true;
+  if (typeof document !== 'undefined') document.__devicereadyFired = true;
+  if (typeof globalThis !== 'undefined') globalThis.__devicereadyFired = true;
   if (typeof document !== 'undefined' && document.dispatchEvent) {
     try {
       const evt = typeof Event !== 'undefined' ? new Event('deviceready') : { type: 'deviceready' };
       document.dispatchEvent(evt);
-      console.log('[MiniGame] Dispatched deviceready event');
+      console.log('[MiniGame] Dispatched deviceready event to document');
     } catch (e) {
       console.warn('[MiniGame] deviceready dispatch warning:', e);
     }
+  }
+  if (typeof window !== 'undefined' && window.dispatchEvent) {
+    try {
+      const evt = typeof Event !== 'undefined' ? new Event('deviceready') : { type: 'deviceready' };
+      window.dispatchEvent(evt);
+      console.log('[MiniGame] Dispatched deviceready event to window');
+    } catch (e) {}
   }
 }
 
@@ -297,8 +355,57 @@ async function initGame() {
     loadSub('data')
   ]);
 
-  console.log('[MiniGame] Ready, triggering deviceready...');
+  // Preload data.json into global memory for zero-IO C3 startup
+  try {
+    if (!globalThis.__c3DataJson) {
+      if (typeof tt !== 'undefined' && tt.getFileSystemManager) {
+        const fs = tt.getFileSystemManager();
+        const content = fs.readFileSync('data/data.json', 'utf8');
+        globalThis.__c3DataJson = JSON.parse(content);
+        console.log('[MiniGame] Loaded data.json via FileSystemManager successfully');
+      } else if (typeof require === 'function') {
+        globalThis.__c3DataJson = require('./data/data.json');
+        console.log('[MiniGame] Loaded data.json into globalThis.__c3DataJson successfully');
+      }
+    }
+  } catch (e) {
+    console.warn('[MiniGame] Failed to preload ./data/data.json:', e);
+  }
+
+  // Preload Opus WASM decoder for in-thread WebM audio decoding
+  try {
+    const fs = (typeof tt !== 'undefined' && tt.getFileSystemManager) ? tt.getFileSystemManager() : null;
+    let wasmBinary = null;
+    if (fs && fs.readFileSync) {
+      try {
+        wasmBinary = fs.readFileSync('scripts/opus.wasm.wasm');
+      } catch (e) {}
+    }
+    const g = (typeof globalThis !== 'undefined') ? globalThis : (typeof window !== 'undefined' ? window : self);
+    g.JobHandlers = g.JobHandlers || {};
+    g.sentBuffers = g.sentBuffers || new Map();
+    g.sentBlobs = g.sentBlobs || new Map();
+    g.Module = g.Module || {};
+    if (wasmBinary) {
+      g.sentBuffers.set('opus-decoder-wasm', wasmBinary);
+      g.Module.wasmBinary = wasmBinary;
+    }
+    if (typeof require === 'function') {
+      try {
+        require('./scripts/opus.wasm.js');
+        console.log('[MiniGame] Preloaded opus.wasm.js successfully');
+      } catch (e) {}
+    }
+  } catch (e) {
+    console.warn('[MiniGame] Failed to preload opus.wasm:', e);
+  }
+
+  console.log('[MiniGame] Starting C3 main runtime...');
+  try { require('./scripts/supportcheck.js'); } catch (e) {}
+  require('./scripts/main.js');
+
   triggerDeviceReady();
 }
 
 initGame();
+

@@ -24,6 +24,7 @@ function embedImages(targetDir) {
     const dataUri = `data:${mime};base64,${base64}`;
 
     map[`images/${file}`] = dataUri;
+    map[file] = dataUri;
   }
 
   // Also include loading-logo if present

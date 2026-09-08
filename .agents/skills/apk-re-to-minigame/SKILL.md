@@ -131,27 +131,41 @@ python <skill>/scripts/inspect_apk.py "<path_to_game.apk>" --extract-web ./recov
 
 ### Phase 4: 注入双引擎适配器与全局垫片
 1. **注入适配器**：
-   复制 `<skill>/templates/tt-c3-adapter.template.js` 到 `adapter/tt-c3-adapter.js`。
+   复制 `<skill>/templates/tt-c3-adapter.template.js` 到 `adapter/tt-c3-adapter.js`：
+   - **AudioContext 桥接与 AudioParam 补全**：桥接 `tt.getAudioContext()`，提供 `ensureAudioParam` 补齐 `cancelScheduledValues`、`cancelAndHoldAtTime`，并在 `onTouchStart`/`onShow` 自动触发 `ctx.resume()`。
+   - **WebM Opus 阻断声明**：`canPlayType` 对 webm/opus 返回 `""`，阻止原生播放器崩溃并转入 Wasm 软解。
+   - **本地存储持久化**：将 `localStorage` 同步桥接至 `tt.getStorageSync`/`tt.setStorageSync`，防止 IndexedDB 缺失导致存档内存化丢失。
 2. **注入主入口 `game.js`**：
    参考 `<skill>/templates/game.template.js`，包含：
-   - **`MiniBlob` / `MiniFile`**：实现对 `ArrayBuffer` 与 `URL.createObjectURL` 的支持。
+   - **`MiniBlob` / `MiniFile` / `MiniResponse`**：实现对 `ArrayBuffer` 与 `URL.createObjectURL` 的支持。
    - **`atob` / `btoa`**：挂载全局纯 JS base64 编解码方法（防 Android Krypton 报 `atob is not defined`）。
    - **`visualViewport`**：提供具备 `addEventListener` 与尺寸查询能力的事件目标（防 Android 扫码黑屏）。
-   - **分包异步加载管线**：
+   - **严格时序的分包异步加载与数据预读**：
      ```javascript
      await Promise.all([loadSub('images'), loadSub('media'), loadSub('data')]);
-     triggerDeviceReady();
+     // 通过 FileSystemManager 同步读取 data.json 注入 globalThis.__c3DataJson
+     const fs = tt.getFileSystemManager();
+     globalThis.__c3DataJson = JSON.parse(fs.readFileSync('data/data.json', 'utf8'));
+     // 预载 Opus WASM 二进制至 Module.wasmBinary
      ```
 
 ---
 
-### Phase 5: 语法与编译器冲突排错 (SWC & Babylon)
-- **保留字冲突**：
-  在 `scripts/objRefTable.js` 中查找 `switch: class` 或 `function switch(`，重命名为 `_switch` 或 `SwitchObject`。
+### Phase 5: 语法、着色器与运行时冲突排错
+- **GLSL ES 1.00 着色器语法 (S0012 错误)**：
+  - Android GPU 严禁在着色器全局作用域中使用非常量（如 `uniform` 变量）初始化全局变量（`S0012: Value being assigned must be a constant`）。
+  - 将所有全局变量的非常量赋值移入 `void main()` 函数体内。
+  - 在 `c3runtime.js` 的 `WebGLShaderProgram.Compile` 增加 Shader Fallback 降级，避免单个滤镜编译失败导致全屏黑屏。
+- **单线程化 Opus Wasm 软解**：
+  - 小游戏环境没有 Web Worker，在 `c3runtime.js` / `main.js` 中拦截 `_WasmDecodeWebMOpus`，直接调用主线程挂载的 `JobHandlers["OpusDecode"]` 处理 PCM 提取。
+- **ES6 原型 Getter/Setter 严格模式冲突**：
+  - 为 `MiniAudio` 上所有原型 Getter（`duration`, `paused`, `readyState`, `ended`）对称提供空 Setter，避免基类构造函数严格模式赋值抛出 `Cannot set property which has only a getter`。
+- **保留字冲突 (SWC Parser)**：
+  - 在 `scripts/objRefTable.js` 中查找 `switch: class` 或 `function switch(`，重命名为 `_switch` 或 `SwitchObject`。
 - **私有属性报错**：
-  在 `scripts/modernjscheck.js` 中若包含 `#p` 私有属性语法探针，注释该探针，直接显式赋值 `window["C3_ModernJSSupport_OK"] = true;`。
+  - 在 `scripts/modernjscheck.js` 中若包含 `#p` 私有属性语法探针，注释该探针，直接显式赋值 `window["C3_ModernJSSupport_OK"] = true;`。
 - **Unicode 正则报错**：
-  在 `scripts/c3runtime.js` 中捕获 `\p{P}` 正则，避免低版本 Krypton 抛出 `Invalid regular expression`。
+  - 在 `scripts/c3runtime.js` 中捕获 `\p{P}` 正则，避免低版本 Krypton 抛出 `Invalid regular expression`。
 
 ---
 
@@ -165,19 +179,20 @@ python <skill>/scripts/inspect_apk.py "<path_to_game.apk>" --extract-web ./recov
 ---
 
 ### Phase 7: 规范校验与真机上机验收
-1. **执行自动化包体校验**：
+1. **执行自动化包体与静态规则校验**：
    ```bash
    node <skill>/scripts/validate-package.js ./my-tt-minigame
    ```
    **必须确认**：
    - `Main Package Size <= 4.0 MB`
    - 每个分包目录下的 `game.js` 校验通过
-   - 无 SWC 保留字语法错误
+   - `tt-c3-adapter.js` 包含 `visualViewport` 与 `ensureAudioParam`
+   - 无 SWC 保留字语法错误与 GLSL ES 1.00 非常量初始化特征
 2. **抖音开发者工具导入与真机验证**：
    - 打开抖音开发者工具，导入 `my-tt-minigame`。
    - 在“项目构成分析”确认主包体积。
-   - 使用 Android 手机扫码，确认**无黑屏、能进入主玩法、音效正常**。
-   - 使用 iPhone 扫码，并在菜单中点击“重新进入小游戏”，确认**屏幕方向锁定横屏，未被压扁成竖屏**。
+   - 使用 Android 手机扫码，确认**无黑屏、能进入主玩法、音效正常出声且无中断、存档正常**。
+   - 使用 iPhone 扫码，并在菜单中点击“重新进入小游戏”，确认**屏幕方向锁定正常，无压扁变竖屏**。
 
 ---
 
