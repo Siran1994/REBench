@@ -474,9 +474,10 @@ if (typeof tt !== 'undefined') {
   }
 }
 
-// Load Core Libs & PokiSDK Bridge
+// Load Core Libs, SDKManager & PokiSDK Bridge
 require('./lodash.custom.min.js');
 require('./tween.js');
+require('./SDKManager.js');
 require('./poki-sdk.js');
 
 // Dynamic script loader for Construct 3 runtime scripts
@@ -493,7 +494,8 @@ const scriptModules = {
   'scripts/main.js': () => { require('./scripts/main.js'); },
   'scripts/offlineclient.js': () => {},
   'scripts/project/main.js': () => { require('./scripts/project/main.js'); },
-  'scripts/project/scriptsInEvents.js': () => { require('./scripts/project/scriptsInEvents.js'); }
+  'scripts/project/scriptsInEvents.js': () => { require('./scripts/project/scriptsInEvents.js'); },
+  'SDKManager.js': () => { require('./SDKManager.js'); }
 };
 
 globalThis.__loadScript = async function (src) {

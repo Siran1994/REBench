@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>REBench - 抖音无广告试玩链接合集 (No-Ad Free-Links Portal)</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: rgba(56, 189, 248, 0.2);
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.3);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    .header {
+      max-width: 960px;
+      margin: 0 auto 40px auto;
+      text-align: center;
+    }
+    .header h1 {
+      font-size: 32px;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 12px;
+      letter-spacing: -0.5px;
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--accent);
+      border: 1px solid var(--card-border);
+      padding: 4px 14px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    .header p {
+      color: var(--text-muted);
+      font-size: 16px;
+      line-height: 1.6;
+    }
+    .grid {
+      max-width: 960px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 24px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+      display: flex;
+      flex-direction: column;
+      text-decoration: none;
+      color: inherit;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 24px -10px var(--accent-glow);
+      border-color: var(--accent);
+    }
+    .card-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-desc {
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.5;
+      flex: 1;
+      margin-bottom: 20px;
+    }
+    .card-btn {
+      background: var(--accent);
+      color: #0f172a;
+      font-weight: 700;
+      font-size: 14px;
+      padding: 10px 16px;
+      border-radius: 8px;
+      text-align: center;
+      transition: background 0.15s;
+    }
+    .card:hover .card-btn {
+      background: #7dd3fc;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="badge">CDN Free-Links Hub</div>
+    <h1>免广告网页试玩链接导航</h1>
+    <p>逆向工程产出的网页端全功能试玩版本。广告已全部由 No-Ad 垫片拦截并自动发放奖励，适合直接上传至 CDN 或在浏览器中测试验收。</p>
+  </div>
+  <div class="grid">
+    
+    <a class="card" href="./digger_escape/index.html" target="_blank">
+      <div class="card-title">⛏️ Digger Escape (逃离矿井)</div>
+      <div class="card-desc">逆向重构版 Digger Escape，已剥离原生 Android 依赖，注入全链路无广告秒发奖与音效解锁垫片。</div>
+      <div class="card-btn">立即在新标签页打开试玩 ➜</div>
+    </a>
+    
+    <a class="card" href="./mine_line/index.html" target="_blank">
+      <div class="card-title">💎 Mine Line (小小矿工 / Tiny Miners)</div>
+      <div class="card-desc">经典挖矿冒险 Mine Line，包含全部资源数据与 WebAssembly 特效，注入全链路无广告秒发奖垫片。</div>
+      <div class="card-btn">立即在新标签页打开试玩 ➜</div>
+    </a>
+    
+  </div>
+</body>
+</html>

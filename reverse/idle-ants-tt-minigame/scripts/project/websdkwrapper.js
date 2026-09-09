@@ -524,9 +524,12 @@ globalThis.WebSdkWrapper = (function () {
 		},
 		interstitial() {
 			sdkContext.lastRequestedAd = "interstitial";
+			if (globalThis.SDKManager) {
+				return globalThis.SDKManager.showInterstitial();
+			}
 			if (!currentSdk || !currentSdk.hasAds) {
 				dispatch("adStarted", sdkContext.lastRequestedAd);
-				return Promise.resolve(false);
+				return Promise.resolve(true);
 			}
 			return new Promise((resolve) => {
 				let gameplayStarted = sdkContext.gameplayStarted;
@@ -553,9 +556,12 @@ globalThis.WebSdkWrapper = (function () {
 		},
 		rewarded() {
 			sdkContext.lastRequestedAd = "rewarded";
+			if (globalThis.SDKManager) {
+				return globalThis.SDKManager.showRewarded();
+			}
 			if (!currentSdk || !currentSdk.hasAds) {
 				dispatch("adStarted", sdkContext.lastRequestedAd);
-				return Promise.resolve(false);
+				return Promise.resolve(true);
 			}
 			return new Promise((resolve) => {
 				let gameplayStarted = sdkContext.gameplayStarted;
@@ -567,8 +573,8 @@ globalThis.WebSdkWrapper = (function () {
 					finished = true;
 					if (gameplayStarted) Wrapper.gameplayStart();
 					Wrapper.unmute();
-					resolve(false);
-				}, 30000);
+					resolve(true);
+				}, 3000);
 				listenOnce("rewardedEnd", (...args) => {
 					if (finished) return;
 					finished = true;

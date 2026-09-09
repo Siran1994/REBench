@@ -28,59 +28,18 @@
       return Promise.resolve(opts || {});
     },
     commercialBreak: function () {
-      console.log('[PokiBridge] commercialBreak requested -> Interstitial ad');
-      return new Promise((resolve) => {
-        const timer = setTimeout(resolve, 300);
-        const safeResolve = () => { clearTimeout(timer); resolve(); };
-        if (typeof tt !== 'undefined' && tt.createInterstitialAd) {
-          try {
-            const ad = tt.createInterstitialAd({ adUnitId: 'YOUR_INTERSTITIAL_AD_UNIT_ID' });
-            ad.load()
-              .then(() => ad.show())
-              .catch((err) => {
-                console.warn('[PokiBridge] Interstitial ad load/show error:', err);
-              })
-              .finally(safeResolve);
-            return;
-          } catch (e) {
-            console.warn('[PokiBridge] Interstitial ad exception:', e);
-          }
-        }
-        safeResolve();
-      });
+      console.log('[PokiBridge] commercialBreak requested -> route to SDKManager');
+      if (globalThis.SDKManager) {
+        return globalThis.SDKManager.showInterstitial();
+      }
+      return Promise.resolve(true);
     },
     rewardedBreak: function () {
-      console.log('[PokiBridge] rewardedBreak requested -> Rewarded Video ad');
-      return new Promise((resolve) => {
-        if (typeof tt !== 'undefined' && tt.createRewardedVideoAd) {
-          try {
-            const ad = rewardedVideoAd || tt.createRewardedVideoAd({ adUnitId: 'YOUR_REWARDED_AD_UNIT_ID' });
-            let handled = false;
-            const onClose = (res) => {
-              if (handled) return;
-              handled = true;
-              try { ad.offClose(onClose); } catch (e) {}
-              const isEnded = (res && res.isEnded) !== false;
-              console.log('[PokiBridge] Rewarded ad closed, completed:', isEnded);
-              resolve(isEnded);
-            };
-            ad.onClose(onClose);
-            ad.show().catch(() => {
-              ad.load()
-                .then(() => ad.show())
-                .catch((err) => {
-                  console.warn('[PokiBridge] Rewarded ad show failed, granting reward in dev/test mode:', err);
-                  resolve(true); // Fallback reward in development / test mode
-                });
-            });
-            return;
-          } catch (e) {
-            console.warn('[PokiBridge] Rewarded ad exception:', e);
-          }
-        }
-        // In local mock or non-tt environment, grant reward
-        resolve(true);
-      });
+      console.log('[PokiBridge] rewardedBreak requested -> route to SDKManager');
+      if (globalThis.SDKManager) {
+        return globalThis.SDKManager.showRewarded();
+      }
+      return Promise.resolve(true);
     },
     gameLoadingStart: function () {
       console.log('[PokiBridge] gameLoadingStart');

@@ -51,12 +51,15 @@ digraph engine_decision_flow {
 | **提取 C3 Web 资源** | `python <skill>/scripts/inspect_apk.py <path_to_apk> --extract-web <target_dir>` | 提取 `assets/www/` 静态网页工程 |
 | **素材分包与入口生成** | `node <skill>/scripts/embed-images.js <minigame_project_dir>` | 确保分包内存在必需的 `game.js` |
 | **4MB 主包与规范校验** | `node <skill>/scripts/validate-package.js <minigame_project_dir>` | 严查主包体积及分包合法性 |
+| **打包 CDN 无广告链接** | `node <skill>/scripts/export-noad-freelink.js -s <web_dir> -o Noad-freelinks/<name> -n <game_name>` | 生成可直接上传 CDN 并运行在浏览器的免广告试玩工程 |
+| **无广告试玩垫片模板** | `<skill>/templates/noad-bridge.template.js` | 包含 `tt`/`PokiSDK`/`AppLovin` 激励视频自动发放与 Toast 提示 |
 | **适配器模板** | `<skill>/templates/tt-c3-adapter.template.js` | 包含 Helium 与 Krypton 全局垫片 |
 | **小游戏启动入口模板** | `<skill>/templates/game.template.js` | 包含 `MiniBlob`/`atob` 及异步分包预加载 |
 
 ---
 
-## Step-by-Step Workflow (Construct 3 移植 7 步法)
+## Step-by-Step Workflow (Construct 3 移植与免广告打包 8 步法)
+
 
 ### Phase 1: 引擎门禁检测 (Gatekeeper)
 **必须作为第一步运行**，不得跳过：
@@ -196,6 +199,32 @@ python <skill>/scripts/inspect_apk.py "<path_to_game.apk>" --extract-web ./recov
 
 ---
 
+### Phase 8: 打包 CDN 网页版无广告试玩链接 (No-Ad Free-Link Web Build)
+小游戏移植验收完成后，为便于运营发链、渠道测试、商务评审，自动化打包一套**脱离小游戏客户端、可直接上传至 CDN、并在桌面/手机 Web 浏览器直接运行**的免广告试玩版本：
+```bash
+node <skill>/scripts/export-noad-freelink.js --source ./reverse/recovered-web --output ./Noad-freelinks/mine_line --name "Tiny Miners"
+```
+
+**核心保障与自动化能力**：
+1. **全链路广告自动发奖 (No-Ad Bypass)**：
+   - 注入 `noad-bridge.js`，无缝拦截 `tt.createRewardedVideoAd`、`PokiSDK.rewardedBreak`、Cordova `AppLovinMAX.showRewardedAd`。
+   - 玩家点击“看广告获得金币/双倍奖励/复活”时，直接跳过视频，立即触发奖励发放回调，并弹出毛玻璃 HUD 提示：`✨ [免看广告] 奖励已直接发放！`。
+2. **浏览器原生适配与生命周期解锁**：
+   - 自动响应式监听并派发 Cordova `deviceready` 事件，解耦对原生 Android/iOS 容器的依赖，确保桌面及移动端 Web 浏览器秒开。
+   - 自动将 `exportType` 设为 `"html5"`，剔除 native `cordova.js` 依赖与 Android 文件系统冲突。
+   - 自动解锁 Web Audio 浏览器手势静音限制。
+3. **浏览器 `file:///` 安全限制与一键启动器 (`启动网页试玩.bat`)**：
+   - **禁止直接双击 `index.html`**：现代浏览器出于安全策略，严禁在 `file:///` 协议下加载 ES Module 模块脚本与游戏数据配置，直接双击必然黑屏。
+   - **自动化生成 `启动网页试玩.bat` 与 `serve.py`**：内置微型 HTTP 服务，并自动纠正 Windows 注册表常有的 `.js` 误识别为 `text/plain` 导致的模块 MIME 阻断问题（强制设定为 `application/javascript`），实现本地一键双击即开。
+   - **内置友好阻断提示**：若用户误直接双击 `index.html`，`noad-bridge.js` 自动弹出毛玻璃指引弹窗，引导双击 `.bat` 或上传 CDN。
+4. **独立文件夹归类与 CDN 托管**：
+   - 每个工程单独归类存储在 `Noad-freelinks/<project_name>/` 目录下。
+   - 资源均为自包含纯相对路径（`./`），直接上传至阿里云 OSS、腾讯云 COS、AWS S3 或 Cloudflare Pages 等任意静态托管即可分发。
+5. **统一导航门户自动更新**：
+   - 每次打包自动更新 `Noad-freelinks/index.html` 导航门户与 `启动所有免广告试玩.bat`，汇总展示所有项目的免广告试玩链接。
+
+---
+
 ## Common Rationalizations & Red Flags
 
 | 错误心智与借口 | 真实情况与正确做法 |
@@ -203,15 +232,20 @@ python <skill>/scripts/inspect_apk.py "<path_to_game.apk>" --extract-web ./recov
 | “Unity 的 APK 资源也能拿出来，不如直接逆向改写” | **RED FLAG**。Unity 代码经 IL2CPP 编译为二进制 Native 库，强行反编译改写成本极高且极易烂尾。门禁判定为 Unity 时必须立即终止。 |
 | “主包 4.2 MB，抖音工具应该能上传” | **RED FLAG**。抖音开放平台服务端上传接口有 4MB 硬卡点，超过 1 字节都会报错。必须将图片或音频推入分包。 |
 | “只在 images 文件夹放图片就行，不需要 game.js” | **RED FLAG**。抖音编译器强制检查分包根目录的 `game.js`，缺少会导致编译阶段直接阻断。 |
-| “电脑模拟器能跑，真机肯定没问题” | **RED FLAG**。模拟器基于 Chromium，真机 Android 使用 Krypton、iOS 使用 Helium。`atob`、`Blob`、`visualViewport` 缺失只会在真机暴露。必须真机扫码验证。 |
+| “反编译后的 index.html 直接双击应该就能在浏览器预览” | **RED FLAG**。现代浏览器出于安全规范，严禁在 `file:///`（Origin 为 `null`）下加载 ES Module 模块与 fetch 本地数据。直接双击必黑屏，必须通过 HTTP 服务或双击配套的「启动网页试玩.bat」运行。 |
+| “本地预览只要随便开个 python -m http.server 就可以” | **RED FLAG**。Windows 注册表中 `.js` 常被关联为 `text/plain`，Python 默认输出该 MIME 类型会导致 Chrome 依据严格模块规范拒收执行。必须使用强制映射 `application/javascript` 的 `serve.py`。 |
+| “做免广告试玩只要注释掉广告代码即可” | **RED FLAG**。游戏内的道具、复活与翻倍深度依赖广告结束事件（`onClose` / `OnRewardedAdReceivedRewardEvent`），直接注释会导致流程卡死。必须使用 `noad-bridge.js` 模拟完整生命周期并秒发奖。 |
 
 ---
 
 ## Supporting Files & References
 
 - **双端避坑手册**: [krypton-helium-pitfalls.md](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/references/krypton-helium-pitfalls.md)
+- **免广告 Web 试玩避坑手册**: [noad-freelink-guide.md](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/references/noad-freelink-guide.md)
 - **抖音规范与限制**: [douyin-minigame-specs.md](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/references/douyin-minigame-specs.md)
 - **C3 结构与字体指南**: [c3-logic-and-fonts.md](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/references/c3-logic-and-fonts.md)
+- **免广告导出工具**: [export-noad-freelink.js](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/scripts/export-noad-freelink.js)
+- **免广告通用垫片模板**: [noad-bridge.template.js](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/templates/noad-bridge.template.js)
 - **引擎扫描工具**: [inspect_apk.py](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/scripts/inspect_apk.py)
 - **包体合规校验器**: [validate-package.js](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/scripts/validate-package.js)
 - **素材分包工具**: [embed-images.js](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/scripts/embed-images.js)

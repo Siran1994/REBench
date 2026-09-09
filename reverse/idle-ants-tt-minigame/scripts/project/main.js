@@ -3107,16 +3107,30 @@ globalThis.WebSdkWrapper = (function () {
 		},
 		interstitial() {
 			sdkContext.lastRequestedAd = "interstitial";
+			if (globalThis.SDKManager) {
+				return globalThis.SDKManager.showInterstitial();
+			}
 			if (!currentSdk || !currentSdk.hasAds) {
 				dispatch("adStarted", sdkContext.lastRequestedAd);
-				return Promise.resolve(false);
+				return Promise.resolve(true);
 			}
 			return new Promise((resolve) => {
 				let gameplayStarted = sdkContext.gameplayStarted;
 				if (gameplayStarted) Wrapper.gameplayStop();
 				Wrapper.mute();
+				let finished = false;
+				const timer = setTimeout(() => {
+					if (finished) return;
+					finished = true;
+					if (gameplayStarted) Wrapper.gameplayStart();
+					Wrapper.unmute();
+					resolve(true);
+				}, 1000);
 				dispatch("interstitial");
 				listenOnce("interstitialEnd", (...args) => {
+					if (finished) return;
+					finished = true;
+					clearTimeout(timer);
 					if (gameplayStarted) Wrapper.gameplayStart();
 					Wrapper.unmute();
 					resolve(...args);
@@ -3125,16 +3139,30 @@ globalThis.WebSdkWrapper = (function () {
 		},
 		rewarded() {
 			sdkContext.lastRequestedAd = "rewarded";
+			if (globalThis.SDKManager) {
+				return globalThis.SDKManager.showRewarded();
+			}
 			if (!currentSdk || !currentSdk.hasAds) {
 				dispatch("adStarted", sdkContext.lastRequestedAd);
-				return Promise.resolve(false);
+				return Promise.resolve(true);
 			}
 			return new Promise((resolve) => {
 				let gameplayStarted = sdkContext.gameplayStarted;
 				if (gameplayStarted) Wrapper.gameplayStop();
 				Wrapper.mute();
+				let finished = false;
+				const timer = setTimeout(() => {
+					if (finished) return;
+					finished = true;
+					if (gameplayStarted) Wrapper.gameplayStart();
+					Wrapper.unmute();
+					resolve(true);
+				}, 3000);
 				dispatch("rewarded");
 				listenOnce("rewardedEnd", (...args) => {
+					if (finished) return;
+					finished = true;
+					clearTimeout(timer);
 					if (gameplayStarted) Wrapper.gameplayStart();
 					Wrapper.unmute();
 					resolve(...args);
@@ -3446,11 +3474,32 @@ function extend(obj1, obj2){
 // import * as myModule from "./mymodule.js";
 //import "./vconsole.js"
 
+let globalRuntime = null;
+let lastAutoSaveTime = Date.now();
+
 runOnStartup(async runtime =>
 {
+	globalRuntime = runtime;
 	// Code to run on the loading screen.
 	// Note layouts, objects etc. are not yet available.
 	
+	// Register ByteDance MiniGame lifecycle save
+	try {
+		if (typeof tt !== "undefined" && tt.onHide) {
+			tt.onHide(() => {
+				console.log("[IdleAnts] App hidden, auto-saving data...");
+				try {
+					if (globalRuntime && globalRuntime.saveData) {
+						const data = globalRuntime.saveData.save();
+						tt.setStorageSync("idle_ants_savedata", data);
+					}
+				} catch (e) {
+					console.warn("[IdleAnts] OnHide save error:", e);
+				}
+			});
+		}
+	} catch (e) {}
+
 	runtime.addEventListener("beforeprojectstart", () => OnBeforeProjectStart(runtime));
 });
 
@@ -3474,6 +3523,25 @@ function Tick(runtime)
 		if (elapsed > 2000) {
 			hasTransitionedToLevel = true;
 			console.log("[IdleAnts Watchdog] Transitioning from Loading to Level...");
+
+			// Attempt restoration from persistent storage if available
+			try {
+				if (runtime.saveData) {
+					let saved = null;
+					if (typeof tt !== "undefined" && tt.getStorageSync) {
+						saved = tt.getStorageSync("idle_ants_savedata");
+					} else if (typeof localStorage !== "undefined") {
+						saved = localStorage.getItem("idle_ants_savedata");
+					}
+					if (saved) {
+						console.log("[IdleAnts] Restoring save data from persistent storage...");
+						runtime.saveData.load(saved);
+					}
+				}
+			} catch (e) {
+				console.warn("[IdleAnts] Save restoration error:", e);
+			}
+
 			try { runtime.callFunction("M_Save_MaybeLoadData"); } catch (e) {}
 			try { runtime.callFunction("M_Monetisation_LoadingEnd"); } catch (e) {}
 			try { runtime.callFunction("M_Monetisation_AdEnd", "loading complete"); } catch (e) {}
@@ -3483,6 +3551,146 @@ function Tick(runtime)
 		}
 	}
 }
+
+// Post-tick hook called every frame right after C3 event sheets run and before Render()
+self._idleAntsPostTick = function(c3Runtime) {
+	try {
+		if (!globalRuntime) return;
+
+		// 1. Auto-save every 15 seconds
+		const now = Date.now();
+		if (now - lastAutoSaveTime > 15000) {
+			lastAutoSaveTime = now;
+			try {
+				if (globalRuntime.saveData) {
+					const data = globalRuntime.saveData.save();
+					if (typeof tt !== "undefined" && tt.setStorageSync) {
+						tt.setStorageSync("idle_ants_savedata", data);
+					} else if (typeof localStorage !== "undefined") {
+						localStorage.setItem("idle_ants_savedata", data);
+					}
+				}
+			} catch (e) {}
+		}
+
+		// 2. Reposition Top UI bars: Money on left (Box 1), Ants right next to it (Box 2)
+		const uiBars = globalRuntime.objects.UIBar ? globalRuntime.objects.UIBar.getAllInstances() : [];
+		if (!uiBars || uiBars.length < 2) return;
+
+		let moneyBar = null;
+		let antBar = null;
+		for (const b of uiBars) {
+			const isAnt = b.uid === 21 ||
+				b.animationName === "Animation 2" ||
+				(b._instVarValues && b._instVarValues[0] === 1);
+			if (isAnt) antBar = b;
+			else moneyBar = b;
+		}
+		if (!moneyBar || !antBar) return;
+
+		const uiBarEnds = globalRuntime.objects.UIBarEnd ? globalRuntime.objects.UIBarEnd.getAllInstances() : [];
+		if (!uiBarEnds || uiBarEnds.length < 2) return;
+
+		let moneyEnd = null;
+		let antEnd = null;
+		for (const end of uiBarEnds) {
+			if (end.uid === 22) {
+				antEnd = end;
+			} else if (end.uid === 26) {
+				moneyEnd = end;
+			} else if (!moneyEnd || end.x < moneyEnd.x) {
+				if (moneyEnd) antEnd = moneyEnd;
+				moneyEnd = end;
+			} else {
+				antEnd = end;
+			}
+		}
+
+		// Box 1 (Money Bar): left anchored at x=0, width around 210-250px
+		const moneyW = Math.min(250, Math.max(210, moneyBar.width));
+		moneyBar.x = 0;
+		moneyBar.width = moneyW;
+		if (moneyEnd) {
+			moneyEnd.x = moneyW;
+		}
+
+		// Visual right edge of Money Bar:
+		// moneyEnd (origin=(1, 0.5), angle=PI) extends 128px to the right of moneyEnd.x
+		const moneyRightEdge = (moneyEnd ? moneyEnd.x : moneyW) + 128;
+
+		// User requirement: gap between the two bars should be 10~15px
+		const GAP = 12; // 12px clean visual gap between Money right cap and Ants left cap
+
+		// Box 2 (Ant Bar):
+		// antEnd (origin=(1, 0.5), angle=0) extends 128px to the LEFT of antEnd.x (from antEnd.x - 128 to antEnd.x)
+		// To ensure (antEnd.x - 128) - moneyRightEdge === GAP:
+		// antEnd.x = moneyRightEdge + GAP + 128
+		const antStartX = moneyRightEdge + GAP + 128;
+
+		// User requested: shrink ant bar to match red box in screenshot (width ~218px visual total)
+		// antEnd takes 128px on the left cap, so antBar body is 90px wide (total visual 128 + 90 = 218px)
+		const antW = 90;
+		if (antEnd) {
+			antEnd.x = antStartX;
+		}
+		antBar.width = antW;
+		// Origin of antBar is 1 (mirrored), so right edge is at antStartX + antW
+		antBar.x = antStartX + antW;
+
+		// Move child UIText and BarIcon inside the compact ant bar [antStartX - 128, antStartX + antW]
+		const uiTexts = globalRuntime.objects.UIText ? globalRuntime.objects.UIText.getAllInstances() : [];
+		for (const t of uiTexts) {
+			if (t.uid === 24) {
+				// UIText is right-aligned with origin 0.5 (width 266).
+				// Right edge aligns to t.x + 133.
+				// We want right edge to be at antStartX - 10 (just left of the ant icon):
+				// t.x = antStartX - 10 - 133 = antStartX - 143.
+				t.x = antStartX - 143;
+			}
+		}
+		const barIcons = globalRuntime.objects.BarIcon ? globalRuntime.objects.BarIcon.getAllInstances() : [];
+		for (const ic of barIcons) {
+			if (ic.uid === 54) {
+				// Ant icon inside the right portion of the compact bar
+				ic.x = antStartX + 45;
+				ic.width = 65;
+				ic.height = 65;
+			} else if (ic.uid === 198) {
+				// Keep money icon (cash) anchored within the money rounded cap
+				ic.x = (moneyEnd ? moneyEnd.x : moneyW) + 24;
+			}
+		}
+
+		// 3. Fix Upgrade Button left drift on repeated fast taps:
+		// Cache fixed layout home coordinates (Speed: 214.775, Workers: 539.775, Strength: 865.775)
+		// and ensure buttons return to home position when not actively playing shake animation
+		const uiButtons = globalRuntime.objects.UIButton ? globalRuntime.objects.UIButton.getAllInstances() : [];
+		for (const btn of uiButtons) {
+			let homeX = 539.775;
+			if (btn.uid === 11 || btn.uid === 72) homeX = 214.775;
+			else if (btn.uid === 10 || btn.uid === 71) homeX = 539.775;
+			else if (btn.uid === 9 || btn.uid === 70) homeX = 865.775;
+			else if (typeof btn._baseHomeX === "number" && !isNaN(btn._baseHomeX)) homeX = btn._baseHomeX;
+			else if (typeof btn.x === "number" && !isNaN(btn.x)) homeX = btn.x;
+
+			btn._baseHomeX = homeX;
+
+			// If button position is NaN, restore it immediately to home coordinate
+			if (isNaN(btn.x)) {
+				btn.x = homeX;
+			}
+
+			// If not actively shaking and position is off, restore to home position
+			const isShaking = (btn._shakeEndTime && Date.now() < btn._shakeEndTime);
+			if (!isShaking && Math.abs(btn.x - homeX) > 0.01) {
+				btn.x = homeX;
+			}
+		}
+
+	} catch (e) {
+		// Silent safety fallback
+	}
+};
 
 
 if (typeof module !== 'undefined') {

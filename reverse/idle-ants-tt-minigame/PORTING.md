@@ -58,6 +58,30 @@
 
 ---
 
+## 3.5 世界装饰物灰色光晕 (Grey halo / 灰边) 修复
+
+**现象**：世界装饰物（叶子、西瓜、蓝蛋等 `ObjectBack` / `ObjectFront` 实例）在游戏内渲染为一大团灰白色的「云雾状」光晕（对比正常版应为干净的图形 + 淡紫投影）。
+
+**原因**：这些装饰纹理由游戏美术**烘焙了半透明的灰色柔和投影/光晕**。运行时用两个 shader 将其抠掉并重新上色：
+- `skymen_ChromaTintDropShadow`（`ObjectBack`）：先按 `colorKey=grey(0.5)` 做色键抠图，再乘 `tintColor(0.769)` 上色，最后叠加淡紫投影。
+- `Mikal_Chromakey`（`ObjectFront`）：按 `colorKey=grey(0.5)` 做色键抠图。
+
+二者 `tolerance=0.15`。由于烘焙光晕的外侧是**半透明且偏亮**的灰（RGB≈0.84、alpha≈0.1~0.5），与 colorKey(0.5) 的色距 ≈0.65 > 0.15，色键抠图**抠不掉**它；残留的半透明灰被 tint 后又叠到底色上，就成了灰云。
+
+**解法**（`scripts/c3runtime.js` 中两个 shader 的 `glsl`）：在做色键匹配之外，**追加一条「低饱和 + 半透明」判定**，把这类半透明灰光晕一并抠掉，同时保留不透明的灰色内容（花盆等）与彩色主体：
+
+```glsl
+lowp float maxc = max(front.r, max(front.g, front.b));
+lowp float minc = min(front.r, min(front.g, front.b));
+lowp float sat = maxc - minc;
+if (diff <= effTol) { front = vec4(0.0); }
+else if (sat < 0.16 && front.a < 0.995) { front = vec4(0.0); }  // 半透明灰色光晕
+```
+
+`ChromaTintDropShadow` 的投影采样 `testPointTex` 也同理加一条 `tsat` 判定，避免在残留光晕上额外叠投影。`effTol = max(tolerance, 0.08)` 为前置兜底。经 CPU 逐像素模拟验证：装饰蛋的光晕被干净移除，蛋体与不透明灰内容不变。
+
+---
+
 ## 4. 导入与运行方式
 
 1. 打开 **抖音开发者工具**（ByteDance DevTools）。

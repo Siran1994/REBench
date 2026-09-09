@@ -497,6 +497,7 @@ if (typeof self !== 'undefined') {
       miniGameImages.add(img);
       return img;
     };
+    try { tt.createImage = SafeImage; } catch (e) {}
   } else if (!SafeImage) {
     SafeImage = function () {
       const img = {
@@ -526,7 +527,8 @@ if (typeof self !== 'undefined') {
         if (!inst) return false;
         if (miniGameImages.has(inst)) return true;
         if (inst.tagName === 'IMG' || inst.nodeName === 'IMG') return true;
-        if (typeof inst.src === 'string' && typeof inst.onload !== 'undefined') return true;
+        if (typeof inst.src === 'string') return true;
+        if (inst.constructor && (inst.constructor.name === 'Image' || inst.constructor.name === 'HTMLImageElement')) return true;
         return false;
       },
       configurable: true
@@ -2272,6 +2274,45 @@ if (typeof self !== 'undefined') {
         });
       }
     } catch (e) {}
+
+    try {
+      if (typeof ctx.measureText === 'function') {
+        const origMeasureText = ctx.measureText.bind(ctx);
+        ctx.measureText = function (text) {
+          const res = origMeasureText(text);
+          if (res) {
+            const fsMatch = String(this.font || '').match(/(\d+(?:\.\d+)?)\s*px/i);
+            const fs = fsMatch ? parseFloat(fsMatch[1]) : (parseFloat(this.font) || 16);
+            const ascent = Math.round(fs * 0.8);
+            const descent = Math.max(1, Math.round(fs * 0.2));
+            const baseline = this.textBaseline || 'alphabetic';
+
+            try {
+              if (typeof res.fontBoundingBoxAscent !== 'number' || res.fontBoundingBoxAscent <= 0) {
+                if (baseline === 'top' || baseline === 'hanging') {
+                  res.fontBoundingBoxAscent = 0;
+                  res.fontBoundingBoxDescent = fs;
+                } else if (baseline === 'bottom') {
+                  res.fontBoundingBoxAscent = fs;
+                  res.fontBoundingBoxDescent = 0;
+                } else if (baseline === 'middle') {
+                  res.fontBoundingBoxAscent = Math.round(fs * 0.5);
+                  res.fontBoundingBoxDescent = Math.round(fs * 0.5);
+                } else {
+                  res.fontBoundingBoxAscent = ascent;
+                  res.fontBoundingBoxDescent = descent;
+                }
+              }
+              if (typeof res.fontBoundingBoxDescent !== 'number' || res.fontBoundingBoxDescent <= 0) {
+                res.fontBoundingBoxDescent = (baseline === 'top') ? fs : descent;
+              }
+            } catch (err) {}
+          }
+          return res;
+        };
+      }
+    } catch (e) {}
+
     return ctx;
   }
 

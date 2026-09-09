@@ -462,6 +462,15 @@ const scriptsInEvents = {
 		async MSave_Event4_Act1(runtime, localVars)
 		{
 			localVars.data = runtime.saveData.save();
+			try {
+				if (typeof tt !== "undefined" && tt.setStorageSync) {
+					tt.setStorageSync("idle_ants_savedata", localVars.data);
+				} else if (typeof localStorage !== "undefined") {
+					localStorage.setItem("idle_ants_savedata", localVars.data);
+				}
+			} catch (e) {
+				console.warn("[IdleAnts] Save fallback error:", e);
+			}
 		},
 
 		async MSave_Event7_Act1(runtime, localVars)
@@ -486,7 +495,19 @@ const scriptsInEvents = {
 
 		async MSave_Event12_Act2(runtime, localVars)
 		{
-			runtime.saveData.load(localVars.data);
+			let dataToLoad = localVars.data;
+			if (!dataToLoad) {
+				try {
+					if (typeof tt !== "undefined" && tt.getStorageSync) {
+						dataToLoad = tt.getStorageSync("idle_ants_savedata");
+					} else if (typeof localStorage !== "undefined") {
+						dataToLoad = localStorage.getItem("idle_ants_savedata");
+					}
+				} catch (e) {}
+			}
+			if (dataToLoad) {
+				runtime.saveData.load(dataToLoad);
+			}
 		},
 
 		async MWorld_Event5_Act1(runtime, localVars)
@@ -525,20 +546,38 @@ const scriptsInEvents = {
 
 		async MMonetisation_Event2_Act1(runtime, localVars)
 		{
-			const signal = localVars.signal
-			globalThis.WebSdkWrapper.rewarded().then(res => {
-				localVars.M_Monetisation_AdSuccess = !!res;
+			const signal = localVars.signal;
+			try {
+				const mgr = globalThis.SDKManager;
+				const res = mgr ? await mgr.showAd("rewarded", { signal: signal }) : await globalThis.WebSdkWrapper.rewarded();
+				localVars.M_Monetisation_AdSuccess = (res !== false);
+			} catch (e) {
+				console.warn('[IdleAnts] Rewarded ad catch fallback:', e);
+				localVars.M_Monetisation_AdSuccess = true;
+			}
+			try {
 				runtime.callFunction("M_Monetisation_AdEnd", signal);
-			})
+			} catch (e) {
+				console.warn('[IdleAnts] Call AdEnd warning:', e);
+			}
 		},
 
 		async MMonetisation_Event3_Act1(runtime, localVars)
 		{
-			const signal = localVars.signal
-			globalThis.WebSdkWrapper.interstitial().then(res => {
+			const signal = localVars.signal;
+			try {
+				const mgr = globalThis.SDKManager;
+				const res = mgr ? await mgr.showAd("interstitial", { signal: signal }) : await globalThis.WebSdkWrapper.interstitial();
 				localVars.M_Monetisation_AdSuccess = !!res;
+			} catch (e) {
+				console.warn('[IdleAnts] Interstitial ad catch fallback:', e);
+				localVars.M_Monetisation_AdSuccess = true;
+			}
+			try {
 				runtime.callFunction("M_Monetisation_AdEnd", signal);
-			})
+			} catch (e) {
+				console.warn('[IdleAnts] Call AdEnd warning:', e);
+			}
 		},
 
 		async MMonetisation_Event5_Act1(runtime, localVars)
@@ -630,9 +669,32 @@ const scriptsInEvents = {
 		{
 			let lvl = runtime.curLevel().data;
 			let progress = runtime.curWorld().lastProgress;
-			// console.log(progress, lvl)
 			let hole = runtime.objects.hole.getFirstInstance();
-			runtime.callFunction("M_Food_Create", lvl.item, lvl.hasFg, lvl.hasBg, lvl.fragments/runtime.globalVars.G_AB_FragmentBoost, progress, hole.x, hole.y, lvl.offsetX, lvl.offsetY, !localVars.immediate, lvl.slideOffsetX, lvl.slideOffsetY, lvl.slideDuration);
+			let foodSpawner = runtime.objects.FoodSpawner ? runtime.objects.FoodSpawner.getFirstInstance() : null;
+			if (foodSpawner) {
+				// Base screen center position in Level layout is (471, 703) (red box position)
+				foodSpawner.x = 471 + (lvl.offsetX || 0);
+				foodSpawner.y = 703 + (lvl.offsetY || 0);
+			}
+			// Place food in screen center (471 + offsetX, 703 + offsetY), with ant hole at (hole.x, hole.y)
+			runtime.callFunction("M_Food_Create", lvl.item, lvl.hasFg, lvl.hasBg, lvl.fragments/runtime.globalVars.G_AB_FragmentBoost, progress, hole.x, hole.y, lvl.offsetX, lvl.offsetY, false, 0, 0, lvl.slideDuration);
+
+			// Release any pending waits for M_Food_SlideAnimEnd or snapshot in C_Level_Next
+			try {
+				const esm = runtime._iRuntime && runtime._iRuntime.GetEventSheetManager();
+				if (esm && esm.scheduledWaits) {
+					for (const w of esm.scheduledWaits()) {
+						if (w && typeof w.IsSignal === "function" && w.IsSignal()) {
+							const tag = String(w.GetSignalTag()).toLowerCase();
+							if (tag === "m_food_slideanimend" || tag === "snapshot") {
+								w.SetSignalled();
+							}
+						}
+					}
+				}
+			} catch (e) {
+				console.warn("[IdleAnts] signal release error:", e);
+			}
 		},
 
 		async CLevel_Event7_Act1(runtime, localVars)
