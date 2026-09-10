@@ -310,3 +310,33 @@ Android Krypton 在 strict 模式下报致命错误：
 2. **本地存储桥接 `tt.getStorageSync` / `tt.setStorageSync`**：
    在 `adapter/tt-c3-adapter.js` 中将 `window.localStorage` 的 `getItem`、`setItem`、`removeItem` 完全桥接到小游戏的同步存储 API，确保存档实时落地物理磁盘。
 
+---
+
+## 10. WASM 静态资源被抖音小游戏编译器过滤与 JS 内嵌解法
+
+### 现象
+1. 控制台报错：
+   `API_ERROR: readFileSync:fail no such file or directory, readFileSync scripts/opus.wasm.wasm`
+   或 `readFileSync:fail no such file or directory, readFileSync noise.wasm`
+2. 紧接着抛出：
+   `failed to asynchronously prepare wasm: not yet received opus blob`
+   `Error: unhandledRejection: abort("not yet received opus blob")`
+   `Error: No fetch implementation for: noise.wasm`
+   导致音频软解失败甚至引擎主逻辑中断。
+
+### 根因
+- 抖音小游戏开发者工具与真机编译器存在静态资源文件类型白名单机制（仅自动打包 `.js`、`.json` 及常见图片、音视频文件）。
+- `.wasm` 扩展名不在默认打包白名单内，项目目录中的 `noise.wasm` 和 `scripts/opus.wasm.wasm` **不会被拷贝到小游戏的虚拟文件系统**。
+- 因此在运行时调用 `tt.getFileSystemManager().readFileSync('noise.wasm')` 时必然报 `no such file or directory`。
+
+### 解法
+1. **生成 `scripts/embedded-wasm.js` 内嵌 Base64**：
+   将 `.wasm` 二进制转为 Base64 字符串内嵌在 JS 模块中（38KB 的 `noise.wasm` 仅 ~50KB Base64，121KB 的 `opus.wasm` 仅 ~162KB Base64，完全不影响 4MB 主包限制）。
+2. **利用 `tt.base64ToArrayBuffer` 极速解码**：
+   在 `embedded-wasm.js` 中导出 `getNoiseWasmBuffer()` 和 `getOpusWasmBuffer()`，优先通过原生 C++ 提供的 `tt.base64ToArrayBuffer` 瞬间转换回 `ArrayBuffer`（耗时 < 1ms）。
+3. **主入口预置全局与适配层兜底**：
+   - 在 `game.js` 入口直接执行 `globalThis.__noiseWasmBuffer = embeddedWasm.getNoiseWasmBuffer();` 与 `sentBuffers.set('opus-decoder-wasm', embeddedWasm.getOpusWasmBuffer());`；
+   - 在 `adapter/tt-c3-adapter.js` 的 `fetch` 垫片中拦截 `noise.wasm` 与 `opus.wasm.wasm`，直接返回包含内联 Buffer 的 Mock Response；
+   - 在 `scripts/opus.wasm.js` 的 `getBinaryPromise` 中增加对 `__opusWasmBuffer` 与 `embedded-wasm.js` 的直接读取，彻底杜绝 `abort("not yet received opus blob")`。
+
+

@@ -254,8 +254,14 @@ if (typeof self !== 'undefined') {
   if (!self.btoa) self.btoa = _polyBtoa;
 }
 
-// 3. Load Adapter
+// 3. Load Adapter & SDKManager
 require('./adapter/tt-c3-adapter.js');
+try {
+  require('./SDKManager.js');
+  if (typeof globalThis !== 'undefined' && globalThis.SDKManager && globalThis.SDKManager.clearSaveOnStart) {
+    globalThis.SDKManager.clearSaveData();
+  }
+} catch (e) {}
 
 console.log('[MiniGame] Initializing ByteDance MiniGame environment...');
 
@@ -321,7 +327,7 @@ function loadSub(name) {
   });
 }
 
-// Trigger deviceready lifecycle event for Cordova-wrapped exports
+// Trigger deviceready lifecycle event
 let devicereadyFired = false;
 function triggerDeviceReady() {
   if (devicereadyFired) return;
@@ -372,15 +378,33 @@ async function initGame() {
     console.warn('[MiniGame] Failed to preload ./data/data.json:', e);
   }
 
-  // Preload Opus WASM decoder for in-thread WebM audio decoding
+  // Preload WASM binaries (noise.wasm, opus.wasm.wasm) via embedded-wasm.js or FileSystemManager
   try {
-    const fs = (typeof tt !== 'undefined' && tt.getFileSystemManager) ? tt.getFileSystemManager() : null;
     let wasmBinary = null;
-    if (fs && fs.readFileSync) {
+    let noiseBuffer = null;
+
+    if (typeof require === 'function') {
       try {
-        wasmBinary = fs.readFileSync('scripts/opus.wasm.wasm');
+        const embeddedWasm = require('./scripts/embedded-wasm.js');
+        if (embeddedWasm) {
+          if (embeddedWasm.getOpusWasmBuffer) wasmBinary = embeddedWasm.getOpusWasmBuffer();
+          if (embeddedWasm.getNoiseWasmBuffer) noiseBuffer = embeddedWasm.getNoiseWasmBuffer();
+        }
       } catch (e) {}
     }
+
+    const fs = (typeof tt !== 'undefined' && tt.getFileSystemManager) ? tt.getFileSystemManager() : null;
+    if (!wasmBinary && fs && fs.readFileSync) {
+      try { wasmBinary = fs.readFileSync('scripts/opus.wasm.wasm'); } catch (e) {}
+    }
+    if (!noiseBuffer && fs && fs.readFileSync) {
+      try { noiseBuffer = fs.readFileSync('noise.wasm'); } catch (e) {}
+    }
+
+    if (noiseBuffer) {
+      globalThis.__noiseWasmBuffer = noiseBuffer;
+    }
+
     const g = (typeof globalThis !== 'undefined') ? globalThis : (typeof window !== 'undefined' ? window : self);
     g.JobHandlers = g.JobHandlers || {};
     g.sentBuffers = g.sentBuffers || new Map();
@@ -389,6 +413,7 @@ async function initGame() {
     if (wasmBinary) {
       g.sentBuffers.set('opus-decoder-wasm', wasmBinary);
       g.Module.wasmBinary = wasmBinary;
+      globalThis.__opusWasmBuffer = wasmBinary;
     }
     if (typeof require === 'function') {
       try {
@@ -397,7 +422,12 @@ async function initGame() {
       } catch (e) {}
     }
   } catch (e) {
-    console.warn('[MiniGame] Failed to preload opus.wasm:', e);
+    console.warn('[MiniGame] Failed to preload wasm binaries:', e);
+  }
+
+  // Check clearSaveOnStart before starting C3 main runtime
+  if (typeof globalThis !== 'undefined' && globalThis.SDKManager && globalThis.SDKManager.clearSaveOnStart) {
+    globalThis.SDKManager.clearSaveData();
   }
 
   console.log('[MiniGame] Starting C3 main runtime...');

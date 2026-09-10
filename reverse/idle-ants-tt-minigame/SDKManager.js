@@ -51,8 +51,31 @@ var SDKManager = {
   rewardedAdUnitId: "",
   interstitialAdUnitId: "",
   quietDevelopmentFallback: false,
+  // 控制每次进入游戏时是否删除存档（便于测试初始流程，设为 true 则每次启动清空存档，默认 false）
+  clearSaveOnStart: true,
   rewarded: null,
   interstitial: null,
+
+  /**
+   * 清除游戏本地存档
+   */
+  clearSaveData: function () {
+    console.warn("[IdleAnts][SDKManager] clearSaveOnStart 生效，正在清除游戏本地存档...");
+    try {
+      if (typeof tt !== "undefined" && tt.removeStorageSync) {
+        tt.removeStorageSync("idle_ants_savedata");
+      }
+      if (typeof localStorage !== "undefined" && localStorage.removeItem) {
+        localStorage.removeItem("idle_ants_savedata");
+      }
+      if (typeof window !== "undefined" && window.localStorage && window.localStorage.removeItem) {
+        window.localStorage.removeItem("idle_ants_savedata");
+      }
+      console.info("[IdleAnts][SDKManager] 游戏本地存档已成功清除！");
+    } catch (e) {
+      console.warn("[IdleAnts][SDKManager] 清除本地存档异常：", e);
+    }
+  },
 
   /**
    * 配置管理器参数
@@ -64,6 +87,12 @@ var SDKManager = {
     this.rewardedAdUnitId = String(options.rewardedAdUnitId || "");
     this.interstitialAdUnitId = String(options.interstitialAdUnitId || "");
     this.quietDevelopmentFallback = options.quietDevelopmentFallback === true;
+    if (typeof options.clearSaveOnStart === "boolean") {
+      this.clearSaveOnStart = options.clearSaveOnStart;
+    }
+    if (this.clearSaveOnStart) {
+      this.clearSaveData();
+    }
     if (this.adMode === "development-fallback-success" && !this.quietDevelopmentFallback) {
       console.warn("[IdleAnts][SDKManager] 当前处于开发降级模式：广告未配置或失败时将默认按观看成功并发放奖励");
     }
@@ -331,5 +360,9 @@ root.SDKManager = SDKManager;
 if (typeof window !== "undefined") window.SDKManager = SDKManager;
 if (typeof self !== "undefined") self.SDKManager = SDKManager;
 if (typeof globalThis !== "undefined") globalThis.SDKManager = SDKManager;
+
+if (SDKManager.clearSaveOnStart) {
+  SDKManager.clearSaveData();
+}
 
 if (typeof module !== "undefined" && module.exports) module.exports = SDKManager;

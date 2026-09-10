@@ -137,6 +137,57 @@ class MiniResponse {
   }
 }
 
+
+class MiniDOMPoint {
+  constructor(x = 0, y = 0, z = 0, w = 1) {
+    this.x = Number(x) || 0;
+    this.y = Number(y) || 0;
+    this.z = Number(z) || 0;
+    this.w = Number(w) || 1;
+  }
+  static fromPoint(other) {
+    return new MiniDOMPoint(other ? other.x : 0, other ? other.y : 0, other ? other.z : 0, other ? other.w : 1);
+  }
+}
+
+class MiniDOMRect {
+  constructor(x = 0, y = 0, width = 0, height = 0) {
+    this.x = Number(x) || 0;
+    this.y = Number(y) || 0;
+    this.width = Number(width) || 0;
+    this.height = Number(height) || 0;
+  }
+  get left() { return this.x; }
+  get top() { return this.y; }
+  get right() { return this.x + this.width; }
+  get bottom() { return this.y + this.height; }
+  toJSON() {
+    return { x: this.x, y: this.y, width: this.width, height: this.height, top: this.top, right: this.right, bottom: this.bottom, left: this.left };
+  }
+  static fromRect(other) {
+    return new MiniDOMRect(other ? other.x : 0, other ? other.y : 0, other ? other.width : 0, other ? other.height : 0);
+  }
+}
+
+class MiniDOMQuad {
+  constructor(p1, p2, p3, p4) {
+    this.p1 = MiniDOMPoint.fromPoint(p1);
+    this.p2 = MiniDOMPoint.fromPoint(p2);
+    this.p3 = MiniDOMPoint.fromPoint(p3);
+    this.p4 = MiniDOMPoint.fromPoint(p4);
+  }
+  getBounds() {
+    const minX = Math.min(this.p1.x, this.p2.x, this.p3.x, this.p4.x);
+    const maxX = Math.max(this.p1.x, this.p2.x, this.p3.x, this.p4.x);
+    const minY = Math.min(this.p1.y, this.p2.y, this.p3.y, this.p4.y);
+    const maxY = Math.max(this.p1.y, this.p2.y, this.p3.y, this.p4.y);
+    return new MiniDOMRect(minX, minY, maxX - minX, maxY - minY);
+  }
+  static fromQuad(other) {
+    return new MiniDOMQuad(other ? other.p1 : null, other ? other.p2 : null, other ? other.p3 : null, other ? other.p4 : null);
+  }
+}
+
 class MiniEvent {
   constructor(type, options = {}) {
     this.type = String(type);
@@ -167,6 +218,11 @@ const _exposeGlobals = (target) => {
   if (!target.ImageData) target.ImageData = MiniImageData;
   if (!target.Event) target.Event = MiniEvent;
   if (!target.CustomEvent) target.CustomEvent = MiniCustomEvent;
+  if (!target.DOMRect) target.DOMRect = MiniDOMRect;
+  if (!target.DOMRectReadOnly) target.DOMRectReadOnly = MiniDOMRect;
+  if (!target.DOMPoint) target.DOMPoint = MiniDOMPoint;
+  if (!target.DOMPointReadOnly) target.DOMPointReadOnly = MiniDOMPoint;
+  if (!target.DOMQuad) target.DOMQuad = MiniDOMQuad;
   if (!target.Response) target.Response = MiniResponse;
 };
 
@@ -255,6 +311,8 @@ if (typeof self !== 'undefined') {
   'use strict';
 
   const root = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this);
+  var mainCanvas = null;
+  var mainCanvasAssigned = false;
 
   // 1. Window references
   root.window = root;
@@ -495,6 +553,7 @@ if (typeof self !== 'undefined') {
       miniGameImages.add(img);
       return img;
     };
+    try { tt.createImage = SafeImage; } catch (e) {}
   } else if (!SafeImage) {
     SafeImage = function () {
       const img = {
@@ -524,7 +583,8 @@ if (typeof self !== 'undefined') {
         if (!inst) return false;
         if (miniGameImages.has(inst)) return true;
         if (inst.tagName === 'IMG' || inst.nodeName === 'IMG') return true;
-        if (typeof inst.src === 'string' && typeof inst.onload !== 'undefined') return true;
+        if (typeof inst.src === 'string') return true;
+        if (inst.constructor && (inst.constructor.name === 'Image' || inst.constructor.name === 'HTMLImageElement')) return true;
         return false;
       },
       configurable: true
@@ -599,12 +659,12 @@ if (typeof self !== 'undefined') {
         return cvs;
       }
     }
-    if (root.C3 && typeof root.C3.BlobToImage === 'function' && (source instanceof Blob || (source && typeof source.arrayBuffer === 'function') || source._dataUri || source._path)) {
-      return await root.C3.BlobToImage(source);
+    const embedded = globalThis.__embeddedAssets || globalThis.__idleAntsEmbeddedImages || globalThis.__minersEmbeddedImages || globalThis.__diggerEmbeddedImages || globalThis.__diggerEmbeddedImages || globalThis.__embeddedImages;
+    let uri = source._dataUri;
+    if (!uri && embedded && source._path) {
+      uri = embedded[source._path] || embedded['images/' + source._path] || (source._path.startsWith('images/') ? embedded[source._path.substring(7)] : null);
     }
-    const embedded = globalThis.__minersEmbeddedImages || globalThis.__diggerEmbeddedImages || globalThis.__embeddedImages;
-    if (source._dataUri || (source._path && embedded && embedded[source._path])) {
-      const uri = source._dataUri || embedded[source._path];
+    if (uri) {
       return new Promise((resolve, reject) => {
         const img = root.Image ? new root.Image() : (typeof tt !== 'undefined' && tt.createImage ? tt.createImage() : null);
         if (!img) return resolve(source);
@@ -612,6 +672,9 @@ if (typeof self !== 'undefined') {
         img.onerror = reject;
         img.src = uri;
       });
+    }
+    if (root.C3 && typeof root.C3.BlobToImage === 'function' && (source instanceof Blob || (source && typeof source.arrayBuffer === 'function') || source._dataUri || source._path)) {
+      return await root.C3.BlobToImage(source);
     }
     if (source instanceof Blob || (source && typeof source.arrayBuffer === 'function')) {
       try {
@@ -654,7 +717,41 @@ if (typeof self !== 'undefined') {
   root.URL.createObjectURL = function (blob) {
     if (!blob) return '';
     if (blob._dataUri) return blob._dataUri;
-    if (blob._path) return blob._path;
+    const embedded = globalThis.__embeddedAssets || globalThis.__idleAntsEmbeddedImages || globalThis.__minersEmbeddedImages || globalThis.__diggerEmbeddedImages || globalThis.__diggerEmbeddedImages;
+    if (embedded && blob._path) {
+      if (embedded[blob._path]) return embedded[blob._path];
+      if (embedded['images/' + blob._path]) return embedded['images/' + blob._path];
+      if (blob._path.startsWith('images/') && embedded[blob._path.substring(7)]) {
+        return embedded[blob._path.substring(7)];
+      }
+    }
+    if (blob._arrayBuffer) {
+      try {
+        let b64 = '';
+        if (typeof tt !== 'undefined' && tt.arrayBufferToBase64) {
+          b64 = tt.arrayBufferToBase64(blob._arrayBuffer);
+        } else if (typeof Buffer !== 'undefined') {
+          b64 = Buffer.from(blob._arrayBuffer).toString('base64');
+        } else {
+          const u8 = new Uint8Array(blob._arrayBuffer);
+          let bin = '';
+          for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+          b64 = btoa(bin);
+        }
+        if (b64) {
+          const mime = blob.type || 'image/png';
+          const dataUri = `data:${mime};base64,${b64}`;
+          blob._dataUri = dataUri;
+          return dataUri;
+        }
+      } catch (e) {}
+    }
+    if (blob._path) {
+      if (!blob._path.startsWith('images/') && !blob._path.startsWith('data/') && !blob._path.startsWith('media/') && (blob._path.endsWith('.png') || blob._path.endsWith('.jpg') || blob._path.endsWith('.webp') || blob._path.endsWith('.jpeg'))) {
+        return 'images/' + blob._path;
+      }
+      return blob._path;
+    }
     return '';
   };
   root.URL.revokeObjectURL = function () {};
@@ -1238,9 +1335,12 @@ if (typeof self !== 'undefined') {
       const doOpusDecode = () => {
         if (g && g.JobHandlers && typeof g.JobHandlers['OpusDecode'] === 'function') {
           return g.JobHandlers['OpusDecode']({ arrayBuffer }).then(res => {
-            const floats = new Float32Array(res.result);
+            const raw = (res && res.result) ? res.result : (res instanceof ArrayBuffer ? res : (res && res.buffer ? res.buffer : null));
+            const floats = raw instanceof Float32Array ? raw : (raw ? new Float32Array(raw) : new Float32Array(0));
             const audioBuffer = ctx.createBuffer(1, floats.length, 48000);
-            audioBuffer.getChannelData(0).set(floats);
+            if (audioBuffer && audioBuffer.getChannelData) {
+              audioBuffer.getChannelData(0).set(floats);
+            }
             if (typeof successCallback === 'function') successCallback(audioBuffer);
             return audioBuffer;
           }).catch(err => {
@@ -1340,6 +1440,7 @@ if (typeof self !== 'undefined') {
       this.placeholder = '';
       this.title = '';
       this.disabled = false;
+      this.checked = false;
       this.readOnly = false;
       this.spellcheck = false;
       this.scrollTop = 0;
@@ -1580,6 +1681,58 @@ if (typeof self !== 'undefined') {
     }
     getElementsByTagName(tag) { return this.querySelectorAll(tag); }
     getElementsByClassName(cls) { return this.querySelectorAll('.' + cls); }
+
+    get firstChild() {
+      return (this.children && this.children.length > 0) ? this.children[0] : null;
+    }
+    get lastChild() {
+      return (this.children && this.children.length > 0) ? this.children[this.children.length - 1] : null;
+    }
+    get childNodes() {
+      return this.children || [];
+    }
+    get firstElementChild() {
+      return (this.children && this.children.length > 0) ? (this.children.find(c => c && c.nodeType !== 3) || null) : null;
+    }
+    get lastElementChild() {
+      if (!this.children || this.children.length === 0) return null;
+      for (let i = this.children.length - 1; i >= 0; i--) {
+        if (this.children[i] && this.children[i].nodeType !== 3) return this.children[i];
+      }
+      return null;
+    }
+    get nextSibling() {
+      if (!this.parentElement || !Array.isArray(this.parentElement.children)) return null;
+      const idx = this.parentElement.children.indexOf(this);
+      return (idx >= 0 && idx + 1 < this.parentElement.children.length) ? this.parentElement.children[idx + 1] : null;
+    }
+    get previousSibling() {
+      if (!this.parentElement || !Array.isArray(this.parentElement.children)) return null;
+      const idx = this.parentElement.children.indexOf(this);
+      return idx > 0 ? this.parentElement.children[idx - 1] : null;
+    }
+  }
+
+  // MiniTextNode shim
+  class MiniTextNode {
+    constructor(text) {
+      this.nodeType = 3;
+      this.nodeName = '#text';
+      this.textContent = String(text != null ? text : '');
+      this.nodeValue = this.textContent;
+      this.data = this.textContent;
+      this.parentElement = null;
+    }
+    get nextSibling() {
+      if (!this.parentElement || !Array.isArray(this.parentElement.children)) return null;
+      const idx = this.parentElement.children.indexOf(this);
+      return (idx >= 0 && idx + 1 < this.parentElement.children.length) ? this.parentElement.children[idx + 1] : null;
+    }
+    get previousSibling() {
+      if (!this.parentElement || !Array.isArray(this.parentElement.children)) return null;
+      const idx = this.parentElement.children.indexOf(this);
+      return idx > 0 ? this.parentElement.children[idx - 1] : null;
+    }
   }
 
   // Audio constructor shim for Krypton (iOS) & Helium (Android)
@@ -1802,7 +1955,159 @@ if (typeof self !== 'undefined') {
     }
   }
 
-  // Register Audio, FileReader, FontFace, URLSearchParams across all global scopes
+  // Geometry Polyfills for Krypton (Android) & Helium (iOS)
+  class MiniDOMRectReadOnly {
+    constructor(x = 0, y = 0, width = 0, height = 0) {
+      this._x = +x || 0;
+      this._y = +y || 0;
+      this._width = +width || 0;
+      this._height = +height || 0;
+    }
+    get x() { return this._x; }
+    get y() { return this._y; }
+    get width() { return this._width; }
+    get height() { return this._height; }
+    get top() { return Math.min(this._y, this._y + this._height); }
+    get bottom() { return Math.max(this._y, this._y + this._height); }
+    get left() { return Math.min(this._x, this._x + this._width); }
+    get right() { return Math.max(this._x, this._x + this._width); }
+    toJSON() {
+      return {
+        x: this.x,
+        y: this.y,
+        width: this.width,
+        height: this.height,
+        top: this.top,
+        right: this.right,
+        bottom: this.bottom,
+        left: this.left
+      };
+    }
+    static fromRect(other) {
+      return new MiniDOMRectReadOnly(
+        other ? other.x : 0,
+        other ? other.y : 0,
+        other ? other.width : 0,
+        other ? other.height : 0
+      );
+    }
+  }
+
+  class MiniDOMRect extends MiniDOMRectReadOnly {
+    constructor(x = 0, y = 0, width = 0, height = 0) {
+      super(x, y, width, height);
+    }
+    get x() { return this._x; }
+    set x(v) { this._x = +v || 0; }
+    get y() { return this._y; }
+    set y(v) { this._y = +v || 0; }
+    get width() { return this._width; }
+    set width(v) { this._width = +v || 0; }
+    get height() { return this._height; }
+    set height(v) { this._height = +v || 0; }
+    static fromRect(other) {
+      return new MiniDOMRect(
+        other ? other.x : 0,
+        other ? other.y : 0,
+        other ? other.width : 0,
+        other ? other.height : 0
+      );
+    }
+  }
+
+  class MiniDOMPointReadOnly {
+    constructor(x = 0, y = 0, z = 0, w = 1) {
+      this._x = +x || 0;
+      this._y = +y || 0;
+      this._z = +z || 0;
+      this._w = +w || 1;
+    }
+    get x() { return this._x; }
+    get y() { return this._y; }
+    get z() { return this._z; }
+    get w() { return this._w; }
+    matrixTransform() { return this; }
+    toJSON() { return { x: this.x, y: this.y, z: this.z, w: this.w }; }
+    static fromPoint(other) {
+      return new MiniDOMPointReadOnly(
+        other ? other.x : 0,
+        other ? other.y : 0,
+        other ? other.z : 0,
+        other && typeof other.w === 'number' ? other.w : 1
+      );
+    }
+  }
+
+  class MiniDOMPoint extends MiniDOMPointReadOnly {
+    constructor(x = 0, y = 0, z = 0, w = 1) {
+      super(x, y, z, w);
+    }
+    get x() { return this._x; }
+    set x(v) { this._x = +v || 0; }
+    get y() { return this._y; }
+    set y(v) { this._y = +v || 0; }
+    get z() { return this._z; }
+    set z(v) { this._z = +v || 0; }
+    get w() { return this._w; }
+    set w(v) { this._w = +v || 1; }
+    static fromPoint(other) {
+      return new MiniDOMPoint(
+        other ? other.x : 0,
+        other ? other.y : 0,
+        other ? other.z : 0,
+        other && typeof other.w === 'number' ? other.w : 1
+      );
+    }
+  }
+
+  class MiniDOMQuad {
+    constructor(p1, p2, p3, p4) {
+      this.p1 = p1 ? MiniDOMPoint.fromPoint(p1) : new MiniDOMPoint();
+      this.p2 = p2 ? MiniDOMPoint.fromPoint(p2) : new MiniDOMPoint();
+      this.p3 = p3 ? MiniDOMPoint.fromPoint(p3) : new MiniDOMPoint();
+      this.p4 = p4 ? MiniDOMPoint.fromPoint(p4) : new MiniDOMPoint();
+    }
+    getBounds() {
+      const minX = Math.min(this.p1.x, this.p2.x, this.p3.x, this.p4.x);
+      const maxX = Math.max(this.p1.x, this.p2.x, this.p3.x, this.p4.x);
+      const minY = Math.min(this.p1.y, this.p2.y, this.p3.y, this.p4.y);
+      const maxY = Math.max(this.p1.y, this.p2.y, this.p3.y, this.p4.y);
+      return new MiniDOMRect(minX, minY, maxX - minX, maxY - minY);
+    }
+    toJSON() { return { p1: this.p1, p2: this.p2, p3: this.p3, p4: this.p4 }; }
+    static fromRect(rect) {
+      if (!rect) return new MiniDOMQuad();
+      const p1 = new MiniDOMPoint(rect.x, rect.y);
+      const p2 = new MiniDOMPoint(rect.x + rect.width, rect.y);
+      const p3 = new MiniDOMPoint(rect.x + rect.width, rect.y + rect.height);
+      const p4 = new MiniDOMPoint(rect.x, rect.y + rect.height);
+      return new MiniDOMQuad(p1, p2, p3, p4);
+    }
+    static fromQuad(other) {
+      return new MiniDOMQuad(other ? other.p1 : null, other ? other.p2 : null, other ? other.p3 : null, other ? other.p4 : null);
+    }
+  }
+
+  class MiniDOMMatrixReadOnly {
+    constructor() {
+      this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
+      this.m11 = 1; this.m12 = 0; this.m13 = 0; this.m14 = 0;
+      this.m21 = 0; this.m22 = 1; this.m23 = 0; this.m24 = 0;
+      this.m31 = 0; this.m32 = 0; this.m33 = 1; this.m34 = 0;
+      this.m41 = 0; this.m42 = 0; this.m43 = 0; this.m44 = 1;
+      this.is2D = true;
+      this.isIdentity = true;
+    }
+    transformPoint(point) { return point ? MiniDOMPoint.fromPoint(point) : new MiniDOMPoint(); }
+    toFloat32Array() { return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]); }
+    toFloat64Array() { return new Float64Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]); }
+    static fromMatrix() { return new MiniDOMMatrixReadOnly(); }
+  }
+  class MiniDOMMatrix extends MiniDOMMatrixReadOnly {
+    static fromMatrix() { return new MiniDOMMatrix(); }
+  }
+
+  // Register Audio, FileReader, FontFace, URLSearchParams, DOMRect across all global scopes
   const globalTargets = [
     root,
     (typeof globalThis !== 'undefined' ? globalThis : null),
@@ -1820,12 +2125,17 @@ if (typeof self !== 'undefined') {
       if (!target.FontFace) target.FontFace = MiniFontFace;
       if (!target.URLSearchParams) target.URLSearchParams = MiniURLSearchParams;
       if (!target.OfflineAudioContext) target.OfflineAudioContext = target.AudioContext || root.AudioContext;
+      if (!target.DOMRectReadOnly) target.DOMRectReadOnly = MiniDOMRectReadOnly;
+      if (!target.DOMRect) target.DOMRect = MiniDOMRect;
+      if (!target.DOMPointReadOnly) target.DOMPointReadOnly = MiniDOMPointReadOnly;
+      if (!target.DOMPoint) target.DOMPoint = MiniDOMPoint;
+      if (!target.DOMQuad) target.DOMQuad = MiniDOMQuad;
+      if (!target.DOMMatrixReadOnly) target.DOMMatrixReadOnly = MiniDOMMatrixReadOnly;
+      if (!target.DOMMatrix) target.DOMMatrix = MiniDOMMatrix;
     }
   });
 
-  // 8. Main Canvas Management
-  let mainCanvas = null;
-  let mainCanvasAssigned = false;
+  // 8. Main Canvas Management (hoisted at top)
 
   function getOnScreenCanvas() {
     if (typeof canvas !== 'undefined' && canvas) {
@@ -1981,9 +2291,85 @@ if (typeof self !== 'undefined') {
     getElementsByClassName(cls) {
       return this.documentElement ? this.documentElement.getElementsByClassName(cls) : [];
     }
+    createTextNode(text) {
+      return new MiniTextNode(text);
+    }
     hasFocus() {
       return true;
     }
+  }
+
+  function sanitizeFontString(val) {
+    if (!val) return '10px sans-serif';
+    let s = String(val).trim();
+    s = s.replace(/(\d+(?:\.\d+)?)\s*pt\b/gi, (_, n) => Math.max(1, Math.round(parseFloat(n) * (4 / 3))) + 'px');
+    s = s.replace(/["']/g, '');
+    return s;
+  }
+
+  function wrap2DContext(ctx) {
+    if (!ctx || ctx._c3FontPatched) return ctx;
+    ctx._c3FontPatched = true;
+    try {
+      const proto = Object.getPrototypeOf(ctx);
+      const desc = Object.getOwnPropertyDescriptor(proto, 'font') || Object.getOwnPropertyDescriptor(ctx, 'font');
+      if (desc && desc.set) {
+        const origSet = desc.set;
+        const origGet = desc.get;
+        Object.defineProperty(ctx, 'font', {
+          get() {
+            return origGet ? origGet.call(this) : (this._currentFont || '10px sans-serif');
+          },
+          set(val) {
+            const sanitized = sanitizeFontString(val);
+            this._currentFont = sanitized;
+            origSet.call(this, sanitized);
+          },
+          configurable: true,
+          enumerable: true
+        });
+      }
+    } catch (e) {}
+
+    try {
+      if (typeof ctx.measureText === 'function') {
+        const origMeasureText = ctx.measureText.bind(ctx);
+        ctx.measureText = function (text) {
+          const res = origMeasureText(text);
+          if (res) {
+            const fsMatch = String(this.font || '').match(/(\d+(?:\.\d+)?)\s*px/i);
+            const fs = fsMatch ? parseFloat(fsMatch[1]) : (parseFloat(this.font) || 16);
+            const ascent = Math.round(fs * 0.8);
+            const descent = Math.max(1, Math.round(fs * 0.2));
+            const baseline = this.textBaseline || 'alphabetic';
+
+            try {
+              if (typeof res.fontBoundingBoxAscent !== 'number' || res.fontBoundingBoxAscent <= 0) {
+                if (baseline === 'top' || baseline === 'hanging') {
+                  res.fontBoundingBoxAscent = 0;
+                  res.fontBoundingBoxDescent = fs;
+                } else if (baseline === 'bottom') {
+                  res.fontBoundingBoxAscent = fs;
+                  res.fontBoundingBoxDescent = 0;
+                } else if (baseline === 'middle') {
+                  res.fontBoundingBoxAscent = Math.round(fs * 0.5);
+                  res.fontBoundingBoxDescent = Math.round(fs * 0.5);
+                } else {
+                  res.fontBoundingBoxAscent = ascent;
+                  res.fontBoundingBoxDescent = descent;
+                }
+              }
+              if (typeof res.fontBoundingBoxDescent !== 'number' || res.fontBoundingBoxDescent <= 0) {
+                res.fontBoundingBoxDescent = (baseline === 'top') ? fs : descent;
+              }
+            } catch (err) {}
+          }
+          return res;
+        };
+      }
+    } catch (e) {}
+
+    return ctx;
   }
 
   function createAdaptedElement(tag) {
@@ -2002,7 +2388,17 @@ if (typeof self !== 'undefined') {
         mainCanvasAssigned = true;
         return getOrCreateMainCanvas();
       }
-            const c = typeof tt !== 'undefined' && tt.createCanvas ? tt.createCanvas() : new MiniElement('CANVAS');
+      const c = typeof tt !== 'undefined' && tt.createCanvas ? tt.createCanvas() : new MiniElement('CANVAS');
+      if (typeof c.getContext === 'function') {
+        const origGetContext = c.getContext.bind(c);
+        c.getContext = function (type, ...args) {
+          const ctx = origGetContext(type, ...args);
+          if (ctx && (type === '2d' || !type)) {
+            wrap2DContext(ctx);
+          }
+          return ctx;
+        };
+      }
       if (!c.tagName) c.tagName = 'CANVAS';
       if (!c.nodeName) c.nodeName = 'CANVAS';
       if (!c.focus) c.focus = () => {};
@@ -2191,6 +2587,7 @@ if (typeof self !== 'undefined') {
     if (!root.document.getElementsByTagName) root.document.getElementsByTagName = (tag) => root.document.documentElement ? root.document.documentElement.getElementsByTagName(tag) : [];
     if (!root.document.getElementsByClassName) root.document.getElementsByClassName = (cls) => root.document.documentElement ? root.document.documentElement.getElementsByClassName(cls) : [];
     if (!root.document.getElementById) root.document.getElementById = (id) => root.document.querySelector ? root.document.querySelector('#' + id) : null;
+    if (!root.document.createTextNode) root.document.createTextNode = (text) => new MiniTextNode(text);
     if (root.document && typeof root.document.activeElement === 'undefined') {
       try {
         Object.defineProperty(root.document, 'activeElement', {
@@ -2425,7 +2822,7 @@ if (typeof self !== 'undefined') {
       }
 
       // Check in-memory embedded assets (subpackage images)
-      const embeddedMap = globalThis.__minersEmbeddedImages || globalThis.__embeddedAssets || globalThis.__diggerEmbeddedImages;
+      const embeddedMap = globalThis.__embeddedAssets || globalThis.__idleAntsEmbeddedImages || globalThis.__minersEmbeddedImages || globalThis.__diggerEmbeddedImages || globalThis.__diggerEmbeddedImages;
       let embeddedDataUri = null;
       if (embeddedMap) {
         if (embeddedMap[this._cleanPath]) embeddedDataUri = embeddedMap[this._cleanPath];
@@ -2611,8 +3008,14 @@ if (typeof self !== 'undefined') {
 
     // 0.1 Direct read for noise.wasm
     if (cleanPath === 'noise.wasm' || cleanPath.endsWith('/noise.wasm')) {
-      let wasmBuf = null;
-      if (typeof tt !== 'undefined' && tt.getFileSystemManager) {
+      let wasmBuf = (typeof globalThis !== 'undefined' && globalThis.__noiseWasmBuffer) || null;
+      if (!wasmBuf && typeof require === 'function') {
+        try {
+          const embeddedWasm = require('../scripts/embedded-wasm.js');
+          if (embeddedWasm && embeddedWasm.getNoiseWasmBuffer) wasmBuf = embeddedWasm.getNoiseWasmBuffer();
+        } catch (e) {}
+      }
+      if (!wasmBuf && typeof tt !== 'undefined' && tt.getFileSystemManager) {
         try { wasmBuf = tt.getFileSystemManager().readFileSync('noise.wasm'); } catch (e) {}
       }
       if (!wasmBuf && typeof require === 'function') {
@@ -2641,14 +3044,44 @@ if (typeof self !== 'undefined') {
           headers: new Map([['content-type', 'application/wasm']]),
           text: () => Promise.resolve(''),
           json: () => Promise.reject(new Error('WASM is not JSON')),
-          blob: () => Promise.resolve(typeof Blob !== 'undefined' ? new Blob([ab], { type: 'application/wasm' }) : { size: ab.byteLength }),
+          blob: () => Promise.resolve(typeof Blob !== 'undefined' ? new Blob([ab], { type: 'application/wasm' }) : { size: ab.byteLength, _arrayBuffer: ab, _path: cleanPath }),
+          arrayBuffer: () => Promise.resolve(ab)
+        });
+      }
+    }
+
+    // 0.15 Direct read for opus.wasm.wasm
+    if (cleanPath === 'scripts/opus.wasm.wasm' || cleanPath === 'opus.wasm.wasm' || cleanPath.endsWith('/opus.wasm.wasm')) {
+      let wasmBuf = (typeof globalThis !== 'undefined' && globalThis.__opusWasmBuffer) || null;
+      if (!wasmBuf && typeof require === 'function') {
+        try {
+          const embeddedWasm = require('../scripts/embedded-wasm.js');
+          if (embeddedWasm && embeddedWasm.getOpusWasmBuffer) wasmBuf = embeddedWasm.getOpusWasmBuffer();
+        } catch (e) {}
+      }
+      if (!wasmBuf && typeof tt !== 'undefined' && tt.getFileSystemManager) {
+        try { wasmBuf = tt.getFileSystemManager().readFileSync('scripts/opus.wasm.wasm'); } catch (e) {}
+      }
+      if (wasmBuf) {
+        let ab = wasmBuf;
+        if (ArrayBuffer.isView(wasmBuf)) {
+          ab = wasmBuf.buffer.slice(wasmBuf.byteOffset, wasmBuf.byteOffset + wasmBuf.byteLength);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'application/wasm']]),
+          text: () => Promise.resolve(''),
+          json: () => Promise.reject(new Error('WASM is not JSON')),
+          blob: () => Promise.resolve(typeof Blob !== 'undefined' ? new Blob([ab], { type: 'application/wasm' }) : { size: ab.byteLength, _arrayBuffer: ab, _path: cleanPath }),
           arrayBuffer: () => Promise.resolve(ab)
         });
       }
     }
 
     // 1. Check in-memory embedded assets (subpackage images)
-    const embeddedMap = globalThis.__minersEmbeddedImages || globalThis.__embeddedAssets || globalThis.__diggerEmbeddedImages;
+    const embeddedMap = globalThis.__embeddedAssets || globalThis.__idleAntsEmbeddedImages || globalThis.__minersEmbeddedImages || globalThis.__diggerEmbeddedImages || globalThis.__diggerEmbeddedImages;
     let embeddedDataUri = null;
     if (embeddedMap) {
       if (embeddedMap[cleanPath]) embeddedDataUri = embeddedMap[cleanPath];
@@ -2702,6 +3135,10 @@ if (typeof self !== 'undefined') {
       const candidates = [
         cleanPath,
         './' + cleanPath,
+        'icons/' + cleanPath,
+        './icons/' + cleanPath,
+        'fonts/' + cleanPath,
+        './fonts/' + cleanPath,
         'data/' + cleanPath,
         './data/' + cleanPath,
         'images/' + cleanPath,
@@ -2775,6 +3212,10 @@ if (typeof self !== 'undefined') {
         const candidates = [
           cleanPath,
           './' + cleanPath,
+          'icons/' + cleanPath,
+          './icons/' + cleanPath,
+          'fonts/' + cleanPath,
+          './fonts/' + cleanPath,
           'data/' + cleanPath,
           './data/' + cleanPath,
           'images/' + cleanPath,
@@ -2802,7 +3243,7 @@ if (typeof self !== 'undefined') {
             json: () => {
               try { return Promise.resolve(JSON.parse(textVal)); } catch (e) { return Promise.reject(e); }
             },
-            blob: () => Promise.resolve({ size: arrayBuf.byteLength, _arrayBuffer: arrayBuf }),
+            blob: () => Promise.resolve({ size: arrayBuf.byteLength, _arrayBuffer: arrayBuf, _path: cleanPath }),
             arrayBuffer: () => Promise.resolve(arrayBuf)
           });
         }
@@ -2834,6 +3275,47 @@ if (typeof self !== 'undefined') {
       target: canvas
     });
 
+    const makeEvent = (type, props) => {
+      let evt = null;
+      try {
+        evt = new CustomEvent(type, { bubbles: true, cancelable: true });
+      } catch (e) {
+        try {
+          if (root.document && root.document.createEvent) {
+            evt = root.document.createEvent('Event');
+            evt.initEvent(type, true, true);
+          }
+        } catch (e2) {}
+      }
+      if (!evt) {
+        evt = { type, preventDefault() {}, stopPropagation() {} };
+      }
+      if (props) {
+        for (const key of Object.keys(props)) {
+          const val = props[key];
+          try {
+            evt[key] = val;
+          } catch (err) {
+            try {
+              Object.defineProperty(evt, key, {
+                value: val,
+                writable: true,
+                configurable: true,
+                enumerable: true
+              });
+            } catch (e2) {}
+          }
+        }
+      }
+      return evt;
+    };
+
+    const safeDispatch = (target, evt) => {
+      if (target && typeof target.dispatchEvent === 'function') {
+        try { target.dispatchEvent(evt); } catch (e) {}
+      }
+    };
+
     let isDispatching = false;
     const dispatch = (type, e) => {
       if (isDispatching) return;
@@ -2843,22 +3325,19 @@ if (typeof self !== 'undefined') {
         const changedTouches = (e.changedTouches || []).map(convertTouch);
         const first = changedTouches[0] || touches[0] || { clientX: 0, clientY: 0 };
 
-        const touchEvt = {
-          type,
+        const touchEvt = makeEvent(type, {
           touches,
           changedTouches,
           targetTouches: touches,
-          target: canvas,
-          preventDefault() {},
-          stopPropagation() {}
-        };
+          target: canvas
+        });
 
-        if (canvas.dispatchEvent) canvas.dispatchEvent(touchEvt);
-        if (root.dispatchEvent) root.dispatchEvent(touchEvt);
+        safeDispatch(canvas, touchEvt);
+        safeDispatch(root, touchEvt);
+        safeDispatch(root.document, touchEvt);
 
         const pointerType = type === 'touchstart' ? 'pointerdown' : (type === 'touchmove' ? 'pointermove' : (type === 'touchend' ? 'pointerup' : 'pointercancel'));
-        const pointerEvt = {
-          type: pointerType,
+        const pointerEvt = makeEvent(pointerType, {
           pointerId: first.identifier || 1,
           pointerType: 'touch',
           isPrimary: true,
@@ -2868,13 +3347,12 @@ if (typeof self !== 'undefined') {
           pageY: first.pageY,
           button: 0,
           buttons: 1,
-          target: canvas,
-          preventDefault() {},
-          stopPropagation() {}
-        };
+          target: canvas
+        });
 
-        if (canvas.dispatchEvent) canvas.dispatchEvent(pointerEvt);
-        if (root.dispatchEvent) root.dispatchEvent(pointerEvt);
+        safeDispatch(canvas, pointerEvt);
+        safeDispatch(root, pointerEvt);
+        safeDispatch(root.document, pointerEvt);
       } finally {
         isDispatching = false;
       }

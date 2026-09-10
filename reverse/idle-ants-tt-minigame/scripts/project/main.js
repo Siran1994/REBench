@@ -3400,6 +3400,7 @@ const RuntimeMixin = {
 		this.money().add(Math.round(amount));
 	},
 	eatBit(double = false, profile) {
+		globalThis._isLevelNextRunning = false;
 		let money = this.curWorld().eatBit(this.globalVars.G_AB_FragmentBoost);
 		money = this.computeProfileMultiplier(profile, "moneyFunction", money);
 		this.money().add(double? money * 2: money);
@@ -3525,21 +3526,25 @@ function Tick(runtime)
 			console.log("[IdleAnts Watchdog] Transitioning from Loading to Level...");
 
 			// Attempt restoration from persistent storage if available
-			try {
-				if (runtime.saveData) {
-					let saved = null;
-					if (typeof tt !== "undefined" && tt.getStorageSync) {
-						saved = tt.getStorageSync("idle_ants_savedata");
-					} else if (typeof localStorage !== "undefined") {
-						saved = localStorage.getItem("idle_ants_savedata");
+			if (typeof globalThis !== "undefined" && globalThis.SDKManager && globalThis.SDKManager.clearSaveOnStart) {
+				console.warn("[IdleAnts] SDKManager.clearSaveOnStart 为 true，跳过恢复本地存档");
+			} else {
+				try {
+					if (runtime.saveData) {
+						let saved = null;
+						if (typeof tt !== "undefined" && tt.getStorageSync) {
+							saved = tt.getStorageSync("idle_ants_savedata");
+						} else if (typeof localStorage !== "undefined") {
+							saved = localStorage.getItem("idle_ants_savedata");
+						}
+						if (saved) {
+							console.log("[IdleAnts] Restoring save data from persistent storage...");
+							runtime.saveData.load(saved);
+						}
 					}
-					if (saved) {
-						console.log("[IdleAnts] Restoring save data from persistent storage...");
-						runtime.saveData.load(saved);
-					}
+				} catch (e) {
+					console.warn("[IdleAnts] Save restoration error:", e);
 				}
-			} catch (e) {
-				console.warn("[IdleAnts] Save restoration error:", e);
 			}
 
 			try { runtime.callFunction("M_Save_MaybeLoadData"); } catch (e) {}
@@ -3684,6 +3689,21 @@ self._idleAntsPostTick = function(c3Runtime) {
 			const isShaking = (btn._shakeEndTime && Date.now() < btn._shakeEndTime);
 			if (!isShaking && Math.abs(btn.x - homeX) > 0.01) {
 				btn.x = homeX;
+			}
+		}
+
+		// 4. Ensure M_Food_SlideAnimEnd is released and ant creation never stalls after level food switch
+		if (c3Runtime && typeof c3Runtime.GetEventSheetManager === "function") {
+			const esm = c3Runtime.GetEventSheetManager();
+			if (esm && esm.scheduledWaits) {
+				for (const w of esm.scheduledWaits()) {
+					if (w && typeof w.IsSignal === "function" && w.IsSignal()) {
+						const tag = String(w.GetSignalTag()).toLowerCase();
+						if (tag === "m_food_slideanimend" || tag === "snapshot") {
+							w.SetSignalled();
+						}
+					}
+				}
 			}
 		}
 

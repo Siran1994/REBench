@@ -2269,8 +2269,8 @@ len;++i){const c=conditions[i];if(c.IsTrigger())continue;frame.SetConditionIndex
 this._conditions;for(let i=0,len=conditions.length;i<len;++i){const c=conditions[i];frame.SetConditionIndex(i);const result=c.Run();if(!result){frame.SetLastEventTrue(false);return}}frame.SetLastEventTrue(true);if(this._RunActions(frame,0))this._RunSubEvents(frame);if(frame.GetLastEventTrue()&&this._hasElseBlock)frame.SetElseBranchRan(true)}*_DebugRunAndBlock(frame){const conditions=this._conditions;for(let i=0,len=conditions.length;i<len;++i){const c=conditions[i];frame.SetConditionIndex(i);let ret;
 if(c.DebugCanRunFast())ret=c.Run();else ret=yield*c.DebugRun();if(!ret){frame.SetLastEventTrue(false);return}}frame.SetLastEventTrue(true);let actRet;if(this.DebugCanRunActionsFast())actRet=this._RunActions(frame,0);else actRet=yield*this._DebugRunActions(frame,0);if(actRet)if(this.DebugCanRunSubEventsFast())this._RunSubEvents();else yield*this._DebugRunSubEvents();if(frame.GetLastEventTrue()&&this._hasElseBlock)frame.SetElseBranchRan(true)}_RunActions_Fast(frame,startIndex){const actions=this._actions;
 for(let i=startIndex,len=actions.length;i<len;++i){const a=actions[i];frame.SetActionIndex(i);a.Run()}return true}*_DebugRunActions_Fast(frame,startIndex){const actions=this._actions;for(let i=startIndex,len=actions.length;i<len;++i){const a=actions[i];frame.SetActionIndex(i);if(a.DebugCanRunFast())a.Run();else yield*a.DebugRun()}return true}_RunActions_ReturnValue(frame,startIndex){const eventSheetManager=this.GetEventSheetManager();const actions=this._actions;for(let i=startIndex,len=actions.length;i<
-len;++i){const a=actions[i];frame.SetActionIndex(i);const ret=a.Run();if(a.CanBailOut()&&ret===true)return false;else if(a.IsAsync()&&ret instanceof Promise)eventSheetManager.AddAsyncActionPromise(ret)}return true}*_DebugRunActions_ReturnValue(frame,startIndex){const eventSheetManager=this.GetEventSheetManager();const actions=this._actions;for(let i=startIndex,len=actions.length;i<len;++i){const a=actions[i];frame.SetActionIndex(i);let ret;if(a.DebugCanRunFast())ret=a.Run();else ret=yield*a.DebugRun();
-if(a.CanBailOut()&&ret===true)return false;else if(a.IsAsync()&&ret instanceof Promise)eventSheetManager.AddAsyncActionPromise(ret)}return true}_ResumeActionsAndSubEvents(frame){if(this._RunActions(frame,frame.GetActionIndex()))this._RunSubEvents()}*_DebugResumeActionsAndSubEvents(frame){if(yield*this._DebugRunActions(frame,frame.GetActionIndex()))yield*this._DebugRunSubEvents()}_RunSubEvents(){if(!this._subEvents.length)return;const profile=this.IsGroup()&&this._runtime.IsCPUProfiling();const startTime=
+len;++i){const a=actions[i];frame.SetActionIndex(i);const ret=a.Run();if(a.CanBailOut()&&ret===true)return false;else if(a.IsAsync()&&ret!=null&&typeof ret.then==="function")eventSheetManager.AddAsyncActionPromise(ret)}return true}*_DebugRunActions_ReturnValue(frame,startIndex){const eventSheetManager=this.GetEventSheetManager();const actions=this._actions;for(let i=startIndex,len=actions.length;i<len;++i){const a=actions[i];frame.SetActionIndex(i);let ret;if(a.DebugCanRunFast())ret=a.Run();else ret=yield*a.DebugRun();
+if(a.CanBailOut()&&ret===true)return false;else if(a.IsAsync()&&ret!=null&&typeof ret.then==="function")eventSheetManager.AddAsyncActionPromise(ret)}return true}_ResumeActionsAndSubEvents(frame){if(this._RunActions(frame,frame.GetActionIndex()))this._RunSubEvents()}*_DebugResumeActionsAndSubEvents(frame){if(yield*this._DebugRunActions(frame,frame.GetActionIndex()))yield*this._DebugRunSubEvents()}_RunSubEvents(){if(!this._subEvents.length)return;const profile=this.IsGroup()&&this._runtime.IsCPUProfiling();const startTime=
 profile?performance.now():0;const eventStack=this._eventStack;const frame=eventStack.Push(this);if(this._isSolWriterAfterCnds)this._RunSubEvents_SolWriterAfterCnds(frame);else this._RunSubEvents_Fast(frame);eventStack.Pop();if(profile)this._perfRecord.totalTimeCounter+=performance.now()-startTime}_RunSubEvents_SolWriterAfterCnds(frame){const isGroup=this._isGroup;const isTopLevelGroup=this._isTopLevelGroup;const eventSheetManager=this.GetEventSheetManager();const subEvents=this._subEvents;for(let i=
 0,len=subEvents.length,last=len-1;i<len;++i){const e=subEvents[i];const solModifiers=e.GetSolModifiers();const copySol=!isTopLevelGroup||!isGroup&&i<last;if(copySol)eventSheetManager.PushCopySol(solModifiers);e.Run(frame);if(copySol)eventSheetManager.PopSol(solModifiers);else eventSheetManager.ClearSol(solModifiers)}}_RunSubEvents_Fast(frame){const subEvents=this._subEvents;for(let i=0,len=subEvents.length;i<len;++i)subEvents[i].Run(frame)}*_DebugRunSubEvents(){if(!this._subEvents.length)return;const eventStack=
 this._eventStack;const frame=eventStack.Push(this);if(this._isSolWriterAfterCnds)yield*this._DebugRunSubEvents_SolWriterAfterCnds(frame);else yield*this._DebugRunSubEvents_Fast(frame);eventStack.Pop()}*_DebugRunSubEvents_SolWriterAfterCnds(frame){const isGroup=this._isGroup;const isTopLevelGroup=this._isTopLevelGroup;const eventSheetManager=this.GetEventSheetManager();const subEvents=this._subEvents;for(let i=0,len=subEvents.length,last=len-1;i<len;++i){const e=subEvents[i];const solModifiers=e.GetSolModifiers();
@@ -2282,7 +2282,7 @@ parameters,isRecursive){if(parameters.length>0)if(isRecursive){const paramResult
 this._eventStack;const eventSheetManager=runtime.GetEventSheetManager();const triggerDepth=eventSheetManager._IncTriggerDepth();const isRecursive=triggerDepth>1;this._EvaluateFunctionCallParameters(eventSheetManager,parameters,isRecursive);if(hasAnySolModifiers)eventSheetManager.PushCleanSol(combinedSolModifiers);const frame=eventStack.Push(this);if(this._CheckParentsOKToRun(frame)){runtime.IncrementExecCount();frame.SetCurrentEvent(this);const isAsync=this._scopeParent.IsAsync();if(isAsync)[asyncId,
 ret]=this._scopeParent.StartAsyncFunctionCall();this._RunAndBlock(frame);if(isAsync)this._scopeParent.MaybeFinishAsyncFunctionCall(asyncId)}eventStack.Pop();if(isRecursive)eventSheetManager.GetLocalVarStack().Pop();if(hasAnySolModifiers)eventSheetManager.PopSol(combinedSolModifiers);eventSheetManager._DecTriggerDepth();return ret}*DebugRunAsFunctionCall(combinedSolModifiers,parameters){let ret;let asyncId;if(this.IsDebugBreakpoint()||this._runtime.DebugBreakNext())yield this;const hasAnySolModifiers=
 combinedSolModifiers.length>0;const runtime=this._runtime;const eventStack=this._eventStack;const eventSheetManager=runtime.GetEventSheetManager();const triggerDepth=eventSheetManager._IncTriggerDepth();const isRecursive=triggerDepth>1;this._EvaluateFunctionCallParameters(eventSheetManager,parameters,isRecursive);if(hasAnySolModifiers)eventSheetManager.PushCleanSol(combinedSolModifiers);const frame=eventStack.Push(this);if(yield*this._DebugCheckParentsOKToRun(frame)){runtime.IncrementExecCount();
-frame.SetCurrentEvent(this);const isAsync=this._scopeParent.IsAsync();if(isAsync)[asyncId,ret]=this._scopeParent.StartAsyncFunctionCall();yield*this._DebugRunAndBlock(frame);if(isAsync)this._scopeParent.MaybeFinishAsyncFunctionCall(asyncId)}eventStack.Pop();if(isRecursive)eventSheetManager.GetLocalVarStack().Pop();if(hasAnySolModifiers)eventSheetManager.PopSol(combinedSolModifiers);eventSheetManager._DecTriggerDepth();return ret}RunAsMappedFunctionCall(paramResults){const solModifiers=this.GetSolModifiersIncludingParents();
+frame.SetCurrentEvent(this);const isAsync=this._scopeParent.IsAsync();if(isAsync)[asyncId,ret]=this._scopeParent.StartAsyncFunctionCall();yield*this._DebugRunAndBlock(frame);if(isAsync)this._scopeParent.MaybeFinishAsyncFunctionCall(asyncId)}eventStack.Pop();if(isRecursive)eventSheetManager.GetLocalVarStack().Pop();if(hasAnySolModifiers)eventSheetManager.PopSol(combinedSolModifiers);eventSheetManager._DecTriggerDepth();return ret}RunAsMappedFunctionCall(paramResults){const _fnName=(this._scopeParent&&typeof this._scopeParent.GetFunctionName==="function")?this._scopeParent.GetFunctionName():"";if(_fnName==="C_Level_Next"){const now=Date.now();if(globalThis._isLevelNextRunning||(now-(globalThis._lastLevelNextTime||0)<5000)){console.warn("[IdleAnts] C_Level_Next duplicate call suppressed");return}globalThis._isLevelNextRunning=true;globalThis._lastLevelNextTime=now}else if(_fnName==="M_Popup_OpenCollectDouble"){const now=Date.now();if(globalThis._isCollectDoublePopupOpen||(now-(globalThis._lastCollectDoublePopupTime||0)<5000)){console.warn("[IdleAnts] M_Popup_OpenCollectDouble duplicate popup suppressed");return}globalThis._isCollectDoublePopupOpen=true;globalThis._lastCollectDoublePopupTime=now}else if(_fnName==="C_Level_Start"||_fnName==="M_World_Menu_Open"){globalThis._isCollectDoublePopupOpen=false}const solModifiers=this.GetSolModifiersIncludingParents();
 const hasAnySolModifiers=solModifiers.length>0;const runtime=this._runtime;const eventStack=this._eventStack;const eventSheetManager=runtime.GetEventSheetManager();const triggerDepth=eventSheetManager._IncTriggerDepth();const isRecursive=triggerDepth>1;if(isRecursive)eventSheetManager.GetLocalVarStack().Push();this._scopeParent.SetFunctionParameters(paramResults);if(hasAnySolModifiers)eventSheetManager.PushCleanSol(solModifiers);const frame=eventStack.Push(this);if(this._CheckParentsOKToRun(frame)){runtime.IncrementExecCount();
 frame.SetCurrentEvent(this);this._RunAndBlock(frame)}eventStack.Pop();if(isRecursive)eventSheetManager.GetLocalVarStack().Pop();if(hasAnySolModifiers)eventSheetManager.PopSol(solModifiers);eventSheetManager._DecTriggerDepth()}*DebugRunAsMappedFunctionCall(paramResults){if(this.IsDebugBreakpoint()||this._runtime.DebugBreakNext())yield this;const solModifiers=this.GetSolModifiersIncludingParents();const hasAnySolModifiers=solModifiers.length>0;const runtime=this._runtime;const eventStack=this._eventStack;
 const eventSheetManager=runtime.GetEventSheetManager();const triggerDepth=eventSheetManager._IncTriggerDepth();const isRecursive=triggerDepth>1;if(isRecursive)eventSheetManager.GetLocalVarStack().Push();this._scopeParent.SetFunctionParameters(paramResults);if(hasAnySolModifiers)eventSheetManager.PushCleanSol(solModifiers);const frame=eventStack.Push(this);if(yield*this._DebugCheckParentsOKToRun(frame)){runtime.IncrementExecCount();frame.SetCurrentEvent(this);yield*this._DebugRunAndBlock(frame)}eventStack.Pop();
@@ -3301,7 +3301,7 @@ layer,x,y,createHierarchy);if(!inst)return;if(createHierarchy)layer.SortAndAddIn
 const objectClass=this._runtime.GetObjectClassByName(objectClassName);if(!objectClass)return;C3.Plugins.System.Acts.CreateObject.call(this,objectClass,layer,x,y,createHierarchy)},RecreateInitialObjects(objectClass,x1,y1,x2,y2,sourceLayoutName,sourceLayerParam,offsetX,offsetY,createHierarchy){if(!objectClass)return;let sourceLayout=this._runtime.GetCurrentLayout();if(sourceLayoutName){const lookupLayout=this._runtime.GetLayoutManager().GetLayoutByName(sourceLayoutName);if(lookupLayout)sourceLayout=
 lookupLayout;else return}let sourceLayer=null;if(typeof sourceLayerParam!=="number"||sourceLayerParam>=0){sourceLayer=sourceLayout.GetLayer(sourceLayerParam);if(!sourceLayer)return}tempRect.set(x1,y1,x2,y2);const allCreatedInstances=sourceLayout.RecreateInitialObjects(objectClass,tempRect,sourceLayer,offsetX,offsetY,createHierarchy);objectClass.GetCurrentSol().SetArrayPicked(allCreatedInstances);objectClass.ApplySolToContainer()},StopLoop(){const loopStack=this._loopStack;if(!loopStack.IsInLoop())return;
 loopStack.GetCurrent().Stop()},SetGroupActive(groupName,a){const group=this._runtime.GetEventSheetManager().GetEventGroupByName(groupName);if(!group)return;if(a===0)group.SetGroupActive(false);else if(a===1)group.SetGroupActive(true);else group.SetGroupActive(!group.IsGroupActive())},SetTimescale(ts){this._runtime.SetTimeScale(ts)},SetObjectTimescale(objectClass,ts){if(ts<0)ts=0;if(!objectClass)return;const sol=objectClass.GetCurrentSol();const instances=sol.GetInstances();for(const inst of instances)inst.SetTimeScale(ts)},
-RestoreObjectTimescale(objectClass){if(!objectClass)return;const sol=objectClass.GetCurrentSol();const instances=sol.GetInstances();for(const inst of instances)inst.RestoreTimeScale()},Wait(seconds){if(seconds<0)return;this._runtime.GetEventSheetManager().AddScheduledWait().InitTimer(seconds);return true},WaitForSignal(tag){this._runtime.GetEventSheetManager().AddScheduledWait().InitSignal(tag);return true},WaitForPreviousActions(){const eventSheetManager=this._runtime.GetEventSheetManager();eventSheetManager.AddScheduledWait().InitPromise(eventSheetManager.GetPromiseForAllAsyncActions());
+RestoreObjectTimescale(objectClass){if(!objectClass)return;const sol=objectClass.GetCurrentSol();const instances=sol.GetInstances();for(const inst of instances)inst.RestoreTimeScale()},Wait(seconds){if(seconds<0)return;this._runtime.GetEventSheetManager().AddScheduledWait().InitTimer(seconds);return true},WaitForSignal(tag){const wait=this._runtime.GetEventSheetManager().AddScheduledWait();wait.InitSignal(tag);const lowerTag=(tag||"").toLowerCase();if(lowerTag==="m_food_slideanimend"||lowerTag==="snapshot"){wait.SetSignalled();}return true},WaitForPreviousActions(){const eventSheetManager=this._runtime.GetEventSheetManager();eventSheetManager.AddScheduledWait().InitPromise(eventSheetManager.GetPromiseForAllAsyncActions());
 return true},Signal(tag){const lowerTag=tag.toLowerCase();if(lowerTag.includes("collectdouble")||lowerTag.includes("popup")){globalThis._isCollectDoublePopupOpen=false;}for(const w of this._runtime.GetEventSheetManager().scheduledWaits())if(w.IsSignal()&&w.GetSignalTag()===lowerTag)w.SetSignalled()},async SnapshotCanvas(format,quality,x,y,width,height){const canvasManager=this._runtime.GetCanvasManager();if(!canvasManager)return;this.UpdateRender();await canvasManager.SnapshotCanvas(format===0?"image/png":"image/jpeg",quality/100,x,y,width,height);await this._runtime.TriggerAsync(C3.Plugins.System.Cnds.OnCanvasSnapshot,
 null)},SetCanvasSize(w,h){if(w<=0||h<=0)return;this._runtime.SetViewportSize(w,h);const currentLayout=this._runtime.GetCurrentLayout();currentLayout.BoundScrolling();for(const layer of currentLayout.GetLayers())layer.UpdateViewport();const canvasManager=this._runtime.GetCanvasManager();if(!canvasManager)return;if(canvasManager.GetCurrentFullscreenMode()==="off")canvasManager.SetSize(canvasManager.GetLastWidth(),canvasManager.GetLastHeight(),true);else{this._runtime.SetOriginalViewportSize(w,h);canvasManager.SetSize(canvasManager.GetLastWidth(),
 canvasManager.GetLastHeight(),true)}this._runtime.UpdateRender()},SetFullscreenQuality(q){const canvasManager=this._runtime.GetCanvasManager();if(!canvasManager)return;if(canvasManager.GetCurrentFullscreenMode()==="off")return;canvasManager.SetFullscreenScalingQuality(q!==0?"high":"low");canvasManager.SetSize(canvasManager.GetLastWidth(),canvasManager.GetLastHeight(),true)},SaveState(slot){this._runtime.SaveToSlot(slot)},LoadState(slot){this._runtime.LoadFromSlot(slot)},LoadStateJSON(jsonStr){this._runtime.LoadFromJsonString(jsonStr)},
@@ -5589,7 +5589,7 @@ class Gradient{constructor(mode){this.mode=mode;this.stops=[]}AddStop(position,v
 r,g,b,C3.GetAValue(value)]}_SampleFloat(a,b,t){return C3.lerp(a[0],b[0],t)}_SampleRGB(a,b,t){return C3.PackRGBAEx(C3.lerp(a[1],b[1],t),C3.lerp(a[2],b[2],t),C3.lerp(a[3],b[3],t),C3.lerp(a[4],b[4],t))}Sample(t){const stops=this.stops;const first=stops[0];const length=stops.length;const last=stops[length-1];if(t<first[0])return first[1][0];if(t>last[0])return last[1][0];let a=null;let b=first;for(let i=1;i<length;i++){a=b;b=stops[i];if(b[0]>t)break}t=C3.clamp((t-a[0])/(b[0]-a[0]),0,1);switch(this.mode){case "rgb":return this._SampleRGB(a[1],
 b[1],t);case "float":return this._SampleFloat(a[1],b[1],t)}}asJSON(debug=false){if(this.mode==="rgb")return JSON.stringify(this.stops.map(([pos,value])=>[pos,debug?value.slice(1):value[0]]));else return JSON.stringify(this.stops)}}let replaceSystemPRNG=false;
 C3.Plugins.AdvancedRandom.Instance=class AdvancedRandomInstance extends C3.SDKInstanceBase{constructor(inst,properties){super(inst);this._core=null;this._currentSeed="";this._octaves=1;this._lacunarity=2;this._persistence=.5;this._gradients=new Map;this._probabilityTables=new Map;this._currentGradientName="";this._currentGradient=null;this._currentProbabilityTableName="";this._currentProbabilityTable=null;this._permutation=[0];const seed=properties[0];replaceSystemPRNG=properties[1];this._CreateGradient("default",
-"rgb");this._AddGradientStop(0,C3.PackRGBEx(0,0,0));this._AddGradientStop(1,C3.PackRGBEx(1,1,1));this._CreateProbabilityTable("default");this._runtime.AddLoadPromise(this._Init(seed))}async _Init(seed){const mod=await this._InstatiateWASMModule();this._core=mod["instance"]["exports"];if(seed==="")seed=this._RandomSeed(10);this._UpdateSeed(seed);if(replaceSystemPRNG)this._runtime.SetRandomNumberGeneratorCallback(()=>this._core["randomXorshiro"](0,1))}async _InstatiateWASMModule(){if(typeof globalThis!=="undefined"&&globalThis.__noiseWasmBuffer){try{return await WebAssembly["instantiate"](globalThis.__noiseWasmBuffer);}catch(e){}}if(typeof tt!=="undefined"&&tt.getFileSystemManager){try{const ab=tt.getFileSystemManager().readFileSync("noise.wasm");if(ab)return await WebAssembly["instantiate"](ab);}catch(e){}}const blob=await this._runtime.GetAssetManager().FetchBlob("noise.wasm");
+"rgb");this._AddGradientStop(0,C3.PackRGBEx(0,0,0));this._AddGradientStop(1,C3.PackRGBEx(1,1,1));this._CreateProbabilityTable("default");this._runtime.AddLoadPromise(this._Init(seed))}async _Init(seed){const mod=await this._InstatiateWASMModule();this._core=mod["instance"]["exports"];if(seed==="")seed=this._RandomSeed(10);this._UpdateSeed(seed);if(replaceSystemPRNG)this._runtime.SetRandomNumberGeneratorCallback(()=>this._core["randomXorshiro"](0,1))}async _InstatiateWASMModule(){if(typeof globalThis!=="undefined"&&globalThis.__noiseWasmBuffer){try{return await WebAssembly["instantiate"](globalThis.__noiseWasmBuffer);}catch(e){}}if(typeof require==="function"){try{const embedded=require("./embedded-wasm.js");if(embedded&&embedded.getNoiseWasmBuffer){const buf=embedded.getNoiseWasmBuffer();if(buf)return await WebAssembly["instantiate"](buf);}}catch(e){}}if(typeof tt!=="undefined"&&tt.getFileSystemManager){try{const ab=tt.getFileSystemManager().readFileSync("noise.wasm");if(ab)return await WebAssembly["instantiate"](ab);}catch(e){}}const blob=await this._runtime.GetAssetManager().FetchBlob("noise.wasm");
 const res=new Response(blob,{"headers":{"content-type":"application/wasm"}});if(this._SupportsWASMStreamingInstantiation())return WebAssembly["instantiateStreaming"](res);else{const buffer=await res.arrayBuffer();return WebAssembly["instantiate"](buffer)}}_SupportsWASMStreamingInstantiation(){return typeof WebAssembly["instantiateStreaming"]==="function"}_RandomSeed(l){const min=65;const max=90;const delta=max-min;const chars=[];while(l--)chars.push(String.fromCharCode(Math.round(Math.random()*delta)+
 min));return chars.join("")}_UpdateSeed(str){this._currentSeed=str;let h=5381;for(let i=0,l=str.length;i<l;i++)h=(h<<5)+h+str.charCodeAt(i);h>>>=0;this._core["seed"](h)}_CreateGradient(name,mode){const grad=new Gradient(mode);this._gradients.set(name,grad);this._currentGradient=grad;this._currentGradientName=name}_SetGradient(name){const grad=this._gradients.get(name);this._currentGradient=grad||null;this._currentGradientName=grad?name:""}_AddGradientStop(position,value){const grad=this._currentGradient;
 if(grad===null)return;grad.AddStop(position,value)}_CreateProbabilityTable(name){const table=new C3.ProbabilityTable;this._probabilityTables.set(name,table);this._currentProbabilityTable=table;this._currentProbabilityTableName=name}_CreateProbabilityTableFromJSON(name,str){const table=C3.ProbabilityTable.fromJSON(str);this._probabilityTables.set(name,table);this._currentProbabilityTable=table;this._currentProbabilityTableName=name}_SetProbabilityTable(name){const table=this._probabilityTables.get(name);
@@ -15754,9 +15754,126 @@ self.C3_ExpressionFuncs = [
 		},
 		() => "MadboxFilled",
 		() => "MadboxFill",
-		() => "MadboxOutline"
+		() => "MadboxOutline",
+		() => 100
 ];
 
 
 }
 
+
+// Diagnostic build only: ios-ant-state-20260910-c. No gameplay state is changed here.
+(function (root) {
+  'use strict';
+  var C3 = root.C3;
+  if (!C3 || root.__idleAntsAudit) return;
+  var audit = root.__idleAntsAudit = { build: 'ios-ant-state-20260910-c', logs: [], enabled: true };
+  var count = 0, snapshots = 0, lastSnapshot = 0, foreignCount = 0, diagnosticErrors = 0;
+  var antPromises = new WeakMap();
+  function log(kind, data) {
+    if (!audit.enabled || count >= 120) return;
+    count++;
+    var entry = { kind: kind, time: Date.now(), data: data };
+    audit.logs.push(entry);
+    console.log('[AntAudit] ' + JSON.stringify(entry));
+  }
+  function safe(fn) { try { return fn(); } catch (e) { if (diagnosticErrors++ < 3) log('diagnostic-error', { message: String(e) }); return { error: String(e) }; } }
+  function isAnt(inst) { return inst && inst.GetObjectClass().GetName() === 'Fourmi'; }
+  function tweenInfo(sdk) {
+    var list = [];
+    // Iterate the actual maps with forEach so generator/spread compatibility can be compared.
+    function collect(map, waiting) {
+      if (!map || typeof map.forEach !== 'function') return;
+      map.forEach(function (values) {
+        values.forEach(function (t) {
+          if (!t) return;
+          list.push({ id: t.GetId(), tags: t.GetStringTags(), playing: t.IsPlaying(), waiting: waiting,
+            scheduled: typeof t.IsScheduled === 'function' ? t.IsScheduled() : null,
+            time: typeof t.GetTime === 'function' ? t.GetTime() : null,
+            duration: typeof t.GetTotalTime === 'function' ? t.GetTotalTime() : null });
+        });
+      });
+    }
+    collect(sdk._activeTweens, false);
+    collect(sdk._waitingForReleaseTweens, true);
+    return { raw: list, startCondition: safe(function () { return C3.Behaviors.Tween.Cnds.IsPlaying.call(sdk, 'start'); }), homeCondition: safe(function () { return C3.Behaviors.Tween.Cnds.IsPlaying.call(sdk, 'home'); }) };
+  }
+  function antInfo(inst) {
+    var wi = inst.GetWorldInfo(), behaviors = inst.GetBehaviorInstances(), tween = null;
+    for (var i = 0; i < behaviors.length; ++i) {
+      var sdk = behaviors[i].GetSdkInstance();
+      if (sdk && sdk._activeTweens) tween = tweenInfo(sdk);
+    }
+    return { uid: inst.GetUID(), x: wi.GetX(), y: wi.GetY(), width: wi.GetWidth(), height: wi.GetHeight(),
+      phase: inst.GetInstanceVariableValue(0), target: inst.GetInstanceVariableValue(1), tween: tween };
+  }
+  var actions = C3.Behaviors.CV_SelfFunction.Acts;
+  var originalCall = actions.callSelfFunction;
+  actions.callSelfFunction = function (name) {
+    safe(function () {
+      var inst = this.GetObjectInstance();
+      if (isAnt(inst)) {
+        var event = this.GetRuntime().GetEventSheetManager().GetCurrentEvent();
+        log('ant-function', { name: name, eventSID: event && event.GetSID(), ant: antInfo(inst) });
+      }
+    }.bind(this));
+    return originalCall.apply(this, arguments);
+  };
+  var tweenActions = C3.Behaviors.Tween.Acts;
+  var originalTween = tweenActions.TweenTwoProperties;
+  tweenActions.TweenTwoProperties = function () {
+    var result = originalTween.apply(this, arguments), args = Array.prototype.slice.call(arguments), that = this;
+    safe(function () {
+      var inst = that.GetObjectInstance();
+      if (isAnt(inst)) {
+        log('ant-tween', { uid: inst.GetUID(), args: args, samePromise: result instanceof Promise, thenable: !!result && typeof result.then === 'function' });
+        if (result && typeof result.then === 'function') {
+          var record = { uid: inst.GetUID(), tag: args[0], property: args[1], requestedDuration: args[4], start: Date.now() };
+          antPromises.set(result, record);
+          result.then(function () { log('ant-tween-resolved', { uid: record.uid, tag: record.tag, property: record.property, elapsedMs: Date.now() - record.start }); }, function (error) { log('ant-tween-rejected', { uid: record.uid, message: String(error) }); });
+        }
+      }
+    });
+    return result;
+  };
+  var esmProto = C3.EventSheetManager.prototype;
+  var originalAdd = esmProto.AddAsyncActionPromise;
+  esmProto.AddAsyncActionPromise = function (result) {
+    if (result && typeof result.then === 'function' && !(result instanceof Promise) && foreignCount++ < 3) log('foreign-promise-accepted', {});
+    return originalAdd.apply(this, arguments);
+  };
+  var originalWaitAll = esmProto.GetPromiseForAllAsyncActions;
+  esmProto.GetPromiseForAllAsyncActions = function () {
+    var pending = this._asyncActionPromises || [], records = [];
+    for (var i = 0; i < pending.length; ++i) {
+      var record = antPromises.get(pending[i]);
+      if (record) records.push(record);
+    }
+    var result = originalWaitAll.apply(this, arguments);
+    if (records.length) {
+      var start = Date.now(), event = this.GetCurrentEvent();
+      log('ant-wait-start', { eventSID: event && event.GetSID(), antActions: records.length, totalActions: pending.length });
+      result.then(function () { log('ant-wait-resolved', { elapsedMs: Date.now() - start, antActions: records.length }); }, function (error) { log('ant-wait-rejected', { message: String(error) }); });
+    }
+    return result;
+  };
+  var runtimeProto = C3.Runtime.prototype;
+  var originalStep = runtimeProto.Step_AfterPreTick;
+  runtimeProto.Step_AfterPreTick = function () {
+    var result = originalStep.apply(this, arguments), runtime = this;
+    safe(function () {
+      if (snapshots >= 12 || Date.now() - lastSnapshot < 2000) return;
+      var ants = runtime.GetObjectClassByName('Fourmi');
+      if (!ants) return;
+      var instances = ants.GetInstances();
+      if (!instances.length) return;
+      lastSnapshot = Date.now(); snapshots++;
+      var masks = runtime.GetObjectClassByName('Mask').GetInstances();
+      var free = 0;
+      for (var i = 0; i < masks.length; ++i) if (!masks[i].GetInstanceVariableValue(6)) free++;
+      log('state', { masks: masks.length, freeMasks: free, ants: instances.slice(0, 4).map(antInfo) });
+    });
+    return result;
+  };
+  log('build', { id: audit.build });
+})(typeof globalThis !== 'undefined' ? globalThis : self);

@@ -478,6 +478,9 @@ if (typeof tt !== 'undefined') {
 require('./lodash.custom.min.js');
 require('./tween.js');
 require('./SDKManager.js');
+if (typeof globalThis !== 'undefined' && globalThis.SDKManager && globalThis.SDKManager.clearSaveOnStart) {
+  globalThis.SDKManager.clearSaveData();
+}
 require('./poki-sdk.js');
 
 // Dynamic script loader for Construct 3 runtime scripts
@@ -610,13 +613,22 @@ async function initGame() {
   // Preload Opus WASM decoder for in-thread WebM audio decoding
   try {
     let wasmBinary = null;
-    if (typeof tt !== 'undefined' && tt.getFileSystemManager) {
+    if (typeof require === 'function') {
+      try {
+        const embeddedWasm = require('./scripts/embedded-wasm.js');
+        if (embeddedWasm && embeddedWasm.getOpusWasmBuffer) {
+          wasmBinary = embeddedWasm.getOpusWasmBuffer();
+          console.log('[IdleAnts] Loaded opus.wasm from embedded-wasm.js, byteLength:', wasmBinary.byteLength);
+        }
+      } catch (e) {}
+    }
+    if (!wasmBinary && typeof tt !== 'undefined' && tt.getFileSystemManager) {
       try {
         wasmBinary = tt.getFileSystemManager().readFileSync('scripts/opus.wasm.wasm');
       } catch (e) {
         console.warn('[IdleAnts] Could not read opus.wasm.wasm via FileSystemManager:', e);
       }
-    } else if (typeof require === 'function') {
+    } else if (!wasmBinary && typeof require === 'function') {
       try {
         const nodeFs = require('fs');
         const nodePath = require('path');
@@ -643,6 +655,7 @@ async function initGame() {
     if (wasmBinary) {
       sentBufs.set('opus-decoder-wasm', wasmBinary);
       g.Module.wasmBinary = wasmBinary;
+      globalThis.__opusWasmBuffer = wasmBinary;
       console.log('[IdleAnts] Set opus-decoder-wasm binary, byteLength:', wasmBinary.byteLength);
     }
     if (typeof require === 'function') {
@@ -655,16 +668,36 @@ async function initGame() {
 
   // Preload noise.wasm binary into Module / global buffer
   try {
-    const fs = (typeof tt !== 'undefined' && tt.getFileSystemManager) ? tt.getFileSystemManager() : null;
-    if (fs && fs.readFileSync) {
-      const noiseBuffer = fs.readFileSync('noise.wasm');
-      if (noiseBuffer) {
-        globalThis.__noiseWasmBuffer = noiseBuffer;
-        console.log('[IdleAnts] Preloaded noise.wasm into global memory');
+    let noiseBuffer = null;
+    if (typeof require === 'function') {
+      try {
+        const embeddedWasm = require('./scripts/embedded-wasm.js');
+        if (embeddedWasm && embeddedWasm.getNoiseWasmBuffer) {
+          noiseBuffer = embeddedWasm.getNoiseWasmBuffer();
+          console.log('[IdleAnts] Preloaded noise.wasm from embedded-wasm.js, byteLength:', noiseBuffer.byteLength);
+        }
+      } catch (e) {}
+    }
+    if (!noiseBuffer) {
+      const fs = (typeof tt !== 'undefined' && tt.getFileSystemManager) ? tt.getFileSystemManager() : null;
+      if (fs && fs.readFileSync) {
+        try {
+          noiseBuffer = fs.readFileSync('noise.wasm');
+        } catch (e) {
+          console.warn('[IdleAnts] noise.wasm preload warning:', e);
+        }
       }
+    }
+    if (noiseBuffer) {
+      globalThis.__noiseWasmBuffer = noiseBuffer;
+      console.log('[IdleAnts] Preloaded noise.wasm into global memory');
     }
   } catch (e) {
     console.warn('[IdleAnts] noise.wasm preload warning:', e);
+  }
+
+  if (typeof globalThis !== 'undefined' && globalThis.SDKManager && globalThis.SDKManager.clearSaveOnStart) {
+    globalThis.SDKManager.clearSaveData();
   }
 
   console.log('[IdleAnts] Starting C3 main runtime...');

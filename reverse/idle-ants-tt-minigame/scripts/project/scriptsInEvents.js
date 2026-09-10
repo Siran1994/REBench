@@ -495,6 +495,10 @@ const scriptsInEvents = {
 
 		async MSave_Event12_Act2(runtime, localVars)
 		{
+			if (typeof globalThis !== "undefined" && globalThis.SDKManager && globalThis.SDKManager.clearSaveOnStart) {
+				console.warn("[IdleAnts] SDKManager.clearSaveOnStart 为 true，跳过读取本地存档");
+				return;
+			}
 			let dataToLoad = localVars.data;
 			if (!dataToLoad) {
 				try {
@@ -679,22 +683,30 @@ const scriptsInEvents = {
 			// Place food in screen center (471 + offsetX, 703 + offsetY), with ant hole at (hole.x, hole.y)
 			runtime.callFunction("M_Food_Create", lvl.item, lvl.hasFg, lvl.hasBg, lvl.fragments/runtime.globalVars.G_AB_FragmentBoost, progress, hole.x, hole.y, lvl.offsetX, lvl.offsetY, false, 0, 0, lvl.slideDuration);
 
-			// Release any pending waits for M_Food_SlideAnimEnd or snapshot in C_Level_Next
-			try {
-				const esm = runtime._iRuntime && runtime._iRuntime.GetEventSheetManager();
-				if (esm && esm.scheduledWaits) {
-					for (const w of esm.scheduledWaits()) {
-						if (w && typeof w.IsSignal === "function" && w.IsSignal()) {
-							const tag = String(w.GetSignalTag()).toLowerCase();
-							if (tag === "m_food_slideanimend" || tag === "snapshot") {
-								w.SetSignalled();
+			// Release any pending waits for M_Food_SlideAnimEnd or snapshot in C_Level_Next and re-enable ant creation
+			const releaseWaitsAndEnableAnts = () => {
+				try {
+					const esm = runtime._iRuntime && runtime._iRuntime.GetEventSheetManager();
+					if (esm && esm.scheduledWaits) {
+						for (const w of esm.scheduledWaits()) {
+							if (w && typeof w.IsSignal === "function" && w.IsSignal()) {
+								const tag = String(w.GetSignalTag()).toLowerCase();
+								if (tag === "m_food_slideanimend" || tag === "snapshot") {
+									w.SetSignalled();
+								}
 							}
 						}
 					}
+					runtime.callFunction("M_Ants_SetCanCreateAnt", true);
+				} catch (e) {
+					console.warn("[IdleAnts] signal release error:", e);
 				}
-			} catch (e) {
-				console.warn("[IdleAnts] signal release error:", e);
-			}
+			};
+
+			releaseWaitsAndEnableAnts();
+			setTimeout(releaseWaitsAndEnableAnts, 0);
+			setTimeout(releaseWaitsAndEnableAnts, 50);
+			setTimeout(releaseWaitsAndEnableAnts, 200);
 		},
 
 		async CLevel_Event7_Act1(runtime, localVars)

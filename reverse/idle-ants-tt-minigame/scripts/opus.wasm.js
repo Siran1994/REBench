@@ -1488,11 +1488,31 @@ function integrateWasmJS(Module) {
     function getBinaryPromise() {
         return new Promise((resolve, reject) =>
         {
-            const buffer = self.sentBuffers.get("opus-decoder-wasm");
+            let buffer = null;
+            if (self.sentBuffers && typeof self.sentBuffers.get === 'function') {
+                buffer = self.sentBuffers.get("opus-decoder-wasm");
+            }
+            if (!buffer && typeof globalThis !== 'undefined') {
+                if (globalThis.sentBuffers && typeof globalThis.sentBuffers.get === 'function') {
+                    buffer = globalThis.sentBuffers.get("opus-decoder-wasm");
+                }
+                if (!buffer && globalThis.__opusWasmBuffer) {
+                    buffer = globalThis.__opusWasmBuffer;
+                }
+            }
+            if (!buffer && typeof Module !== 'undefined' && Module["wasmBinary"]) {
+                buffer = Module["wasmBinary"];
+            }
+            if (!buffer && typeof require === 'function') {
+                try {
+                    const embedded = require('./embedded-wasm.js');
+                    buffer = embedded.getOpusWasmBuffer();
+                } catch (e) {}
+            }
             if (buffer)
                 return resolve(new Uint8Array(buffer));
                 
-            const blob = self.sentBlobs.get("opus-decoder-wasm");
+            const blob = self.sentBlobs && typeof self.sentBlobs.get === 'function' ? self.sentBlobs.get("opus-decoder-wasm") : null;
             if (!blob)
                 return reject("not yet received opus blob");
             

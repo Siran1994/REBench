@@ -50,11 +50,13 @@ digraph engine_decision_flow {
 | **引擎扫描与审计** | `python <skill>/scripts/inspect_apk.py <path_to_apk> -o recovery-audit.json` | 判定引擎（Unity 自动中止，C3 输出审计） |
 | **提取 C3 Web 资源** | `python <skill>/scripts/inspect_apk.py <path_to_apk> --extract-web <target_dir>` | 提取 `assets/www/` 静态网页工程 |
 | **素材分包与入口生成** | `node <skill>/scripts/embed-images.js <minigame_project_dir>` | 确保分包内存在必需的 `game.js` |
+| **WASM 二进制内嵌** | `node <skill>/scripts/embed-wasm.js <minigame_project_dir>` | 自动将 `.wasm` 转为 Base64 JS 模块，绕开抖音打包过滤白名单 |
 | **4MB 主包与规范校验** | `node <skill>/scripts/validate-package.js <minigame_project_dir>` | 严查主包体积及分包合法性 |
 | **打包 CDN 无广告链接** | `node <skill>/scripts/export-noad-freelink.js -s <web_dir> -o Noad-freelinks/<name> -n <game_name>` | 生成可直接上传 CDN 并运行在浏览器的免广告试玩工程 |
+| **商业化与平台管理器模板** | `<skill>/templates/sdk-manager.template.js` | 包含统一广告调度、15s熔断、开发调试降级、桌面/侧边栏及清档开关 |
 | **无广告试玩垫片模板** | `<skill>/templates/noad-bridge.template.js` | 包含 `tt`/`PokiSDK`/`AppLovin` 激励视频自动发放与 Toast 提示 |
-| **适配器模板** | `<skill>/templates/tt-c3-adapter.template.js` | 包含 Helium 与 Krypton 全局垫片 |
-| **小游戏启动入口模板** | `<skill>/templates/game.template.js` | 包含 `MiniBlob`/`atob` 及异步分包预加载 |
+| **适配器模板** | `<skill>/templates/tt-c3-adapter.template.js` | 包含 Helium 与 Krypton 全局垫片、WASM fetch 拦截与 DOMRect |
+| **小游戏启动入口模板** | `<skill>/templates/game.template.js` | 包含 `MiniBlob`/`atob`、WASM 预读、SDKManager 集成及异步分包预加载 |
 
 ---
 
@@ -132,29 +134,50 @@ python <skill>/scripts/inspect_apk.py "<path_to_game.apk>" --extract-web ./recov
 
 ---
 
-### Phase 4: 注入双引擎适配器与全局垫片
+### Phase 4: 注入双引擎适配器、商业化管理器与全局垫片
 1. **注入适配器**：
    复制 `<skill>/templates/tt-c3-adapter.template.js` 到 `adapter/tt-c3-adapter.js`：
    - **AudioContext 桥接与 AudioParam 补全**：桥接 `tt.getAudioContext()`，提供 `ensureAudioParam` 补齐 `cancelScheduledValues`、`cancelAndHoldAtTime`，并在 `onTouchStart`/`onShow` 自动触发 `ctx.resume()`。
    - **WebM Opus 阻断声明**：`canPlayType` 对 webm/opus 返回 `""`，阻止原生播放器崩溃并转入 Wasm 软解。
    - **本地存储持久化**：将 `localStorage` 同步桥接至 `tt.getStorageSync`/`tt.setStorageSync`，防止 IndexedDB 缺失导致存档内存化丢失。
-2. **注入主入口 `game.js`**：
+   - **W3C 几何对象与 Response 补齐**：提供 `DOMRect`、`DOMPoint`、`DOMQuad`、`MiniResponse` 垫片。
+   - **WASM 请求就地拦截**：在 `fetch` 垫片中拦截 `noise.wasm` 与 `opus.wasm.wasm`，直接返回内嵌 ArrayBuffer 响应。
+2. **部署商业化与平台调度管理器 (`SDKManager.js`)**：
+   复制 `<skill>/templates/sdk-manager.template.js` 到小游戏根目录 `SDKManager.js`：
+   - **广告调用统一收拢**：所有激励视频 (`showRewarded`) 与插屏广告 (`showInterstitial`) 均走管理器调度，自带 15s 超时熔断防悬挂。
+   - **开发/测试降级发奖模式**：默认开启 `adMode: "development-fallback-success"`，未配真实广告位时自动发奖并弹窗提示。
+   - **测试调优与存档控制**：提供 `clearSaveOnStart: false` 开关与 `clearSaveData()` 方法，便于测试随时清空本地存档。
+   - **平台能力支持**：短震动 (`vibrateShort`)、分享 (`share`)、添加桌面 (`AddDeskTop`)、侧边栏 (`AddSideBar`)。
+3. **执行 WASM 二进制内嵌 (绕开打包扩展名过滤)**：
+   运行自动化内嵌工具：
+   ```bash
+   node <skill>/scripts/embed-wasm.js ./my-tt-minigame
+   ```
+   工具会自动扫描 `.wasm` 并生成 `scripts/embedded-wasm.js`（Base64 封装，支持 `tt.base64ToArrayBuffer` 极速解码）。
+4. **注入主入口 `game.js`**：
    参考 `<skill>/templates/game.template.js`，包含：
    - **`MiniBlob` / `MiniFile` / `MiniResponse`**：实现对 `ArrayBuffer` 与 `URL.createObjectURL` 的支持。
    - **`atob` / `btoa`**：挂载全局纯 JS base64 编解码方法（防 Android Krypton 报 `atob is not defined`）。
    - **`visualViewport`**：提供具备 `addEventListener` 与尺寸查询能力的事件目标（防 Android 扫码黑屏）。
-   - **严格时序的分包异步加载与数据预读**：
+   - **引入 SDKManager 与存档清空检测**：在启动时执行 `if (SDKManager.clearSaveOnStart) SDKManager.clearSaveData();`。
+   - **严格时序的分包异步加载与数据/WASM 预读**：
      ```javascript
      await Promise.all([loadSub('images'), loadSub('media'), loadSub('data')]);
      // 通过 FileSystemManager 同步读取 data.json 注入 globalThis.__c3DataJson
      const fs = tt.getFileSystemManager();
      globalThis.__c3DataJson = JSON.parse(fs.readFileSync('data/data.json', 'utf8'));
-     // 预载 Opus WASM 二进制至 Module.wasmBinary
+     // 预载内嵌 WASM 二进制至 globalThis.__noiseWasmBuffer 与 Module.wasmBinary
      ```
 
 ---
 
 ### Phase 5: 语法、着色器与运行时冲突排错
+- **ES6 Module 模块平铺与 CommonJS 降级**：
+  - C3 在 `scripts/project/` 下生成的多个脚本若使用 ES6 `import`/`export`，在小游戏 CommonJS 环境会报 `SyntaxError: Cannot use import statement outside a module`。
+  - **解法**：将这些模块脚本平铺合并进 `scripts/project/main.js`，移除所有 `import`/`export` 声明，并在 `game.js` 的 `scriptModules` 中显式注册。
+- **移动端 WebGL 低精度着色器容差 (Chromakey Shader Failure)**：
+  - 针对食物啃食遮罩或色度键特效，`data.json` 中 `tolerance` 设为 `0` 时，移动端 GPU `lowp float` 精度无法匹配精确数学零，导致锯齿灰块残留在画面表面。
+  - **解法**：在 `c3runtime.js` 的对应 Shader 中增加移动端最小容差保底：`lowp float effTol = max(tolerance, 0.08);`。
 - **GLSL ES 1.00 着色器语法 (S0012 错误)**：
   - Android GPU 严禁在着色器全局作用域中使用非常量（如 `uniform` 变量）初始化全局变量（`S0012: Value being assigned must be a constant`）。
   - 将所有全局变量的非常量赋值移入 `void main()` 函数体内。
@@ -191,7 +214,11 @@ python <skill>/scripts/inspect_apk.py "<path_to_game.apk>" --extract-web ./recov
    - 每个分包目录下的 `game.js` 校验通过
    - `tt-c3-adapter.js` 包含 `visualViewport` 与 `ensureAudioParam`
    - 无 SWC 保留字语法错误与 GLSL ES 1.00 非常量初始化特征
-2. **抖音开发者工具导入与真机验证**：
+2. **首局与新手引导流程回归验证（存档控制）**：
+   - 调试和真机初次体验验证时，小游戏持久化存储 (`tt.setStorageSync` / `localStorage`) 不会因为 IDE 重编而清除。
+   - 在 `SDKManager.js` 中将 `clearSaveOnStart` 设置为 `true`，验证“全新安装玩家”从初始关卡、新手引导、首次广告弹窗到存档建立的完整流程。
+   - 验证通过后，**必须将 `clearSaveOnStart` 改回 `false`**，避免线上正式版本每次启动清空玩家游戏进度。
+3. **抖音开发者工具导入与真机验证**：
    - 打开抖音开发者工具，导入 `my-tt-minigame`。
    - 在“项目构成分析”确认主包体积。
    - 使用 Android 手机扫码，确认**无黑屏、能进入主玩法、音效正常出声且无中断、存档正常**。
@@ -244,6 +271,8 @@ node <skill>/scripts/export-noad-freelink.js --source ./reverse/recovered-web --
 - **免广告 Web 试玩避坑手册**: [noad-freelink-guide.md](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/references/noad-freelink-guide.md)
 - **抖音规范与限制**: [douyin-minigame-specs.md](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/references/douyin-minigame-specs.md)
 - **C3 结构与字体指南**: [c3-logic-and-fonts.md](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/references/c3-logic-and-fonts.md)
+- **SDKManager 平台与商业化管理器模板**: [sdk-manager.template.js](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/templates/sdk-manager.template.js)
+- **WASM 内嵌工具**: [embed-wasm.js](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/scripts/embed-wasm.js)
 - **免广告导出工具**: [export-noad-freelink.js](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/scripts/export-noad-freelink.js)
 - **免广告通用垫片模板**: [noad-bridge.template.js](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/templates/noad-bridge.template.js)
 - **引擎扫描工具**: [inspect_apk.py](file:///C:/Users/CY/.gemini/config/skills/apk-re-to-minigame/scripts/inspect_apk.py)

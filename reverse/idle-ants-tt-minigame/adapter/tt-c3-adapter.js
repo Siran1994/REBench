@@ -2952,8 +2952,14 @@ if (typeof self !== 'undefined') {
 
     // 0.1 Direct read for noise.wasm
     if (cleanPath === 'noise.wasm' || cleanPath.endsWith('/noise.wasm')) {
-      let wasmBuf = null;
-      if (typeof tt !== 'undefined' && tt.getFileSystemManager) {
+      let wasmBuf = (typeof globalThis !== 'undefined' && globalThis.__noiseWasmBuffer) || null;
+      if (!wasmBuf && typeof require === 'function') {
+        try {
+          const embeddedWasm = require('../scripts/embedded-wasm.js');
+          if (embeddedWasm && embeddedWasm.getNoiseWasmBuffer) wasmBuf = embeddedWasm.getNoiseWasmBuffer();
+        } catch (e) {}
+      }
+      if (!wasmBuf && typeof tt !== 'undefined' && tt.getFileSystemManager) {
         try { wasmBuf = tt.getFileSystemManager().readFileSync('noise.wasm'); } catch (e) {}
       }
       if (!wasmBuf && typeof require === 'function') {
@@ -2982,7 +2988,37 @@ if (typeof self !== 'undefined') {
           headers: new Map([['content-type', 'application/wasm']]),
           text: () => Promise.resolve(''),
           json: () => Promise.reject(new Error('WASM is not JSON')),
-          blob: () => Promise.resolve(typeof Blob !== 'undefined' ? new Blob([ab], { type: 'application/wasm' }) : { size: ab.byteLength }),
+          blob: () => Promise.resolve(typeof Blob !== 'undefined' ? new Blob([ab], { type: 'application/wasm' }) : { size: ab.byteLength, _arrayBuffer: ab, _path: cleanPath }),
+          arrayBuffer: () => Promise.resolve(ab)
+        });
+      }
+    }
+
+    // 0.15 Direct read for opus.wasm.wasm
+    if (cleanPath === 'scripts/opus.wasm.wasm' || cleanPath === 'opus.wasm.wasm' || cleanPath.endsWith('/opus.wasm.wasm')) {
+      let wasmBuf = (typeof globalThis !== 'undefined' && globalThis.__opusWasmBuffer) || null;
+      if (!wasmBuf && typeof require === 'function') {
+        try {
+          const embeddedWasm = require('../scripts/embedded-wasm.js');
+          if (embeddedWasm && embeddedWasm.getOpusWasmBuffer) wasmBuf = embeddedWasm.getOpusWasmBuffer();
+        } catch (e) {}
+      }
+      if (!wasmBuf && typeof tt !== 'undefined' && tt.getFileSystemManager) {
+        try { wasmBuf = tt.getFileSystemManager().readFileSync('scripts/opus.wasm.wasm'); } catch (e) {}
+      }
+      if (wasmBuf) {
+        let ab = wasmBuf;
+        if (ArrayBuffer.isView(wasmBuf)) {
+          ab = wasmBuf.buffer.slice(wasmBuf.byteOffset, wasmBuf.byteOffset + wasmBuf.byteLength);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'application/wasm']]),
+          text: () => Promise.resolve(''),
+          json: () => Promise.reject(new Error('WASM is not JSON')),
+          blob: () => Promise.resolve(typeof Blob !== 'undefined' ? new Blob([ab], { type: 'application/wasm' }) : { size: ab.byteLength, _arrayBuffer: ab, _path: cleanPath }),
           arrayBuffer: () => Promise.resolve(ab)
         });
       }
