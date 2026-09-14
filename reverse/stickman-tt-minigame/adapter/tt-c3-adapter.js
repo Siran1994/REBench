@@ -349,9 +349,30 @@ if (typeof self !== 'undefined') {
       constructor(family, source, descriptors) {
         this.family = family;
         this.source = source;
-        this.status = 'loaded';
+        this.status = 'unloaded';
       }
-      load() { return Promise.resolve(this); }
+      load() {
+        if (typeof tt !== 'undefined' && tt.loadFontFace) {
+          return new Promise((resolve) => {
+            let src = this.source;
+            if (typeof src === 'string' && !src.startsWith('url(')) src = `url("${src}")`;
+            tt.loadFontFace({
+              family: this.family,
+              source: src,
+              success: () => {
+                this.status = 'loaded';
+                resolve(this);
+              },
+              fail: (err) => {
+                console.warn('[FontFace] tt.loadFontFace fail:', this.family, err);
+                resolve(this);
+              }
+            });
+          });
+        }
+        this.status = 'loaded';
+        return Promise.resolve(this);
+      }
     };
     if (typeof window !== 'undefined') window.FontFace = root.FontFace;
     if (typeof globalThis !== 'undefined') globalThis.FontFace = root.FontFace;
@@ -699,7 +720,36 @@ if (typeof self !== 'undefined') {
   }
   if (!root.Worker) root.Worker = MiniWorker;
 
-  // 6. AudioContext shim
+  // 6. AudioContext & Web Audio API for ByteDance MiniGame (Krypton / Helium / iOS / Android)
+  function ensureAudioParam(param, defaultValue = 0) {
+    if (!param || typeof param !== 'object') {
+      param = { value: defaultValue };
+    }
+    if (typeof param.value !== 'number') param.value = defaultValue;
+    if (typeof param.setValueAtTime !== 'function') {
+      param.setValueAtTime = function (val) { this.value = Number(val); return this; };
+    }
+    if (typeof param.linearRampToValueAtTime !== 'function') {
+      param.linearRampToValueAtTime = function (val) { this.value = Number(val); return this; };
+    }
+    if (typeof param.exponentialRampToValueAtTime !== 'function') {
+      param.exponentialRampToValueAtTime = function (val) { this.value = Number(val); return this; };
+    }
+    if (typeof param.setTargetAtTime !== 'function') {
+      param.setTargetAtTime = function (val) { this.value = Number(val); return this; };
+    }
+    if (typeof param.setValueCurveAtTime !== 'function') {
+      param.setValueCurveAtTime = function () { return this; };
+    }
+    if (typeof param.cancelScheduledValues !== 'function') {
+      param.cancelScheduledValues = function () { return this; };
+    }
+    if (typeof param.cancelAndHoldAtTime !== 'function') {
+      param.cancelAndHoldAtTime = function () { return this; };
+    }
+    return param;
+  }
+
   class MiniAudioContext {
     constructor() {
       this.state = 'running';
@@ -713,15 +763,15 @@ if (typeof self !== 'undefined') {
       this.listener = {
         setPosition(x, y, z) {},
         setOrientation(x, y, z, xUp, yUp, zUp) {},
-        positionX: { value: 0 },
-        positionY: { value: 0 },
-        positionZ: { value: 0 },
-        forwardX: { value: 0 },
-        forwardY: { value: 0 },
-        forwardZ: { value: -1 },
-        upX: { value: 0 },
-        upY: { value: 1 },
-        upZ: { value: 0 }
+        positionX: ensureAudioParam({ value: 0 }, 0),
+        positionY: ensureAudioParam({ value: 0 }, 0),
+        positionZ: ensureAudioParam({ value: 0 }, 0),
+        forwardX: ensureAudioParam({ value: 0 }, 0),
+        forwardY: ensureAudioParam({ value: 0 }, 0),
+        forwardZ: ensureAudioParam({ value: -1 }, -1),
+        upX: ensureAudioParam({ value: 0 }, 0),
+        upY: ensureAudioParam({ value: 1 }, 1),
+        upZ: ensureAudioParam({ value: 0 }, 0)
       };
     }
     createBufferSource() {
@@ -732,14 +782,15 @@ if (typeof self !== 'undefined') {
         stop() {},
         buffer: null,
         loop: false,
-        playbackRate: { value: 1 }
+        playbackRate: ensureAudioParam({ value: 1 }, 1),
+        detune: ensureAudioParam({ value: 0 }, 0)
       };
     }
     createGain() {
       return {
         connect() {},
         disconnect() {},
-        gain: { value: 1, setValueAtTime() {}, linearRampToValueAtTime() {} }
+        gain: ensureAudioParam({ value: 1 }, 1)
       };
     }
     createPanner() {
@@ -748,55 +799,78 @@ if (typeof self !== 'undefined') {
         disconnect() {},
         setPosition() {},
         setOrientation() {},
-        setVelocity() {}
+        setVelocity() {},
+        panningModel: 'HRTF',
+        distanceModel: 'inverse',
+        refDistance: 1,
+        maxDistance: 10000,
+        rolloffFactor: 1,
+        coneInnerAngle: 360,
+        coneOuterAngle: 360,
+        coneOuterGain: 0
       };
     }
     createStereoPanner() {
       return {
         connect() {},
         disconnect() {},
-        pan: { value: 0, setValueAtTime() {}, linearRampToValueAtTime() {} }
+        pan: ensureAudioParam({ value: 0 }, 0)
       };
     }
     createBiquadFilter() {
       return {
         connect() {},
         disconnect() {},
-        frequency: { value: 350 },
-        Q: { value: 1 },
-        gain: { value: 0 }
+        type: 'lowpass',
+        frequency: ensureAudioParam({ value: 350 }, 350),
+        Q: ensureAudioParam({ value: 1 }, 1),
+        gain: ensureAudioParam({ value: 0 }, 0),
+        detune: ensureAudioParam({ value: 0 }, 0)
       };
     }
-    createDelay() {
+    createDelay(maxDelayTime = 1) {
       return {
         connect() {},
         disconnect() {},
-        delayTime: { value: 0 }
+        delayTime: ensureAudioParam({ value: 0 }, 0)
       };
     }
     createConvolver() {
       return {
         connect() {},
         disconnect() {},
-        buffer: null
+        buffer: null,
+        normalize: true
       };
     }
     createDynamicsCompressor() {
       return {
         connect() {},
         disconnect() {},
-        threshold: { value: -24 },
-        knee: { value: 30 },
-        ratio: { value: 12 },
-        attack: { value: 0.003 },
-        release: { value: 0.25 }
+        threshold: ensureAudioParam({ value: -24 }, -24),
+        knee: ensureAudioParam({ value: 30 }, 30),
+        ratio: ensureAudioParam({ value: 12 }, 12),
+        attack: ensureAudioParam({ value: 0.003 }, 0.003),
+        release: ensureAudioParam({ value: 0.25 }, 0.25)
       };
     }
     createWaveShaper() {
       return {
         connect() {},
         disconnect() {},
-        curve: null
+        curve: null,
+        oversample: 'none'
+      };
+    }
+    createOscillator() {
+      return {
+        connect() {},
+        disconnect() {},
+        start() {},
+        stop() {},
+        frequency: ensureAudioParam({ value: 440 }, 440),
+        detune: ensureAudioParam({ value: 0 }, 0),
+        type: 'sine'
       };
     }
     createAnalyser() {
@@ -804,57 +878,322 @@ if (typeof self !== 'undefined') {
         connect() {},
         disconnect() {},
         frequencyBinCount: 1024,
+        fftSize: 2048,
+        smoothingTimeConstant: 0.8,
         getByteFrequencyData() {},
-        getByteTimeDomainData() {}
+        getByteTimeDomainData() {},
+        getFloatFrequencyData() {}
       };
     }
     createMediaStreamSource() {
-      return {
-        connect() {},
-        disconnect() {}
-      };
+      return { connect() {}, disconnect() {} };
     }
     createMediaStreamDestination() {
-      return {
-        connect() {},
-        disconnect() {},
-        stream: {}
-      };
+      return { connect() {}, disconnect() {}, stream: {} };
     }
-    decodeAudioData(buffer, success) {
-      const dummy = { duration: 1, sampleRate: 44100, numberOfChannels: 2 };
-      if (success) success(dummy);
+    createBuffer(numberOfChannels = 1, length = 0, sampleRate = 44100) {
+      return new MiniAudioBuffer(numberOfChannels, length, sampleRate);
+    }
+    decodeAudioData(buffer, success, error) {
+      const dummy = new MiniAudioBuffer(2, Math.round(44100), 44100);
+      if (typeof success === 'function') success(dummy);
       return Promise.resolve(dummy);
     }
     resume() { this.state = 'running'; return Promise.resolve(); }
     suspend() { this.state = 'suspended'; return Promise.resolve(); }
     close() { this.state = 'closed'; return Promise.resolve(); }
   }
-  
-  const NativeAudioContext = root.AudioContext || root.webkitAudioContext || MiniAudioContext;
+
+  class MiniAudioBuffer {
+    constructor(numberOfChannels = 1, length = 0, sampleRate = 44100) {
+      this.numberOfChannels = numberOfChannels || 1;
+      this.length = length || 0;
+      this.sampleRate = sampleRate || 44100;
+      this.duration = this.length > 0 ? this.length / this.sampleRate : 0;
+      this._channels = [];
+      for (let i = 0; i < this.numberOfChannels; i++) {
+        this._channels.push(new Float32Array(this.length));
+      }
+    }
+    getChannelData(channel) {
+      if (channel >= 0 && channel < this.numberOfChannels) {
+        return this._channels[channel];
+      }
+      return new Float32Array(this.length);
+    }
+    copyFromChannel(destination, channelNumber, startInChannel = 0) {
+      const ch = this.getChannelData(channelNumber);
+      destination.set(ch.subarray(startInChannel, startInChannel + destination.length));
+    }
+    copyToChannel(source, channelNumber, startInChannel = 0) {
+      const ch = this.getChannelData(channelNumber);
+      ch.set(source, startInChannel);
+    }
+  }
+
+  const NativeAudioContext = root.AudioContext || root.webkitAudioContext || null;
+
   function SafeAudioContext(options) {
-    const ctx = new NativeAudioContext(options);
+    let ctx = null;
+    if (typeof tt !== 'undefined' && typeof tt.getAudioContext === 'function') {
+      try {
+        ctx = tt.getAudioContext(options);
+        console.log('[C3 Adapter] AudioContext initialized via tt.getAudioContext()');
+      } catch (e) {
+        console.warn('[C3 Adapter] tt.getAudioContext failed:', e);
+      }
+    }
+    if (!ctx && typeof tt !== 'undefined' && typeof tt.getWebAudioContext === 'function') {
+      try {
+        ctx = tt.getWebAudioContext(options);
+        console.log('[C3 Adapter] AudioContext initialized via tt.getWebAudioContext()');
+      } catch (e) {
+        console.warn('[C3 Adapter] tt.getWebAudioContext failed:', e);
+      }
+    }
+    if (!ctx && typeof NativeAudioContext === 'function') {
+      try {
+        ctx = new NativeAudioContext(options);
+        console.log('[C3 Adapter] AudioContext initialized via NativeAudioContext');
+      } catch (e) {
+        console.warn('[C3 Adapter] NativeAudioContext instantiation failed:', e);
+      }
+    }
+    if (!ctx) {
+      ctx = new MiniAudioContext();
+      console.log('[C3 Adapter] AudioContext fallback to MiniAudioContext');
+    }
+
+    // Auto unblock audio on user touch or onShow
+    const unblock = () => {
+      if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+        ctx.resume().catch(() => {});
+      }
+    };
+    if (typeof tt !== 'undefined') {
+      if (tt.onTouchStart) tt.onTouchStart(unblock);
+      if (tt.onTouchEnd) tt.onTouchEnd(unblock);
+      if (tt.onShow) tt.onShow(unblock);
+    }
+
+    // Wrap createGain to guarantee full AudioParam compliance
+    const origCreateGain = typeof ctx.createGain === 'function' ? ctx.createGain.bind(ctx) : null;
+    ctx.createGain = function () {
+      let node = null;
+      if (origCreateGain) {
+        try { node = origCreateGain(); } catch (e) { console.warn('[createGain error]', e); }
+      }
+      if (!node) {
+        node = {
+          connect() {},
+          disconnect() {},
+          gain: { value: 1 }
+        };
+      }
+      ensureAudioParam(node.gain, 1);
+      if (typeof node.connect !== 'function') node.connect = function () {};
+      if (typeof node.disconnect !== 'function') node.disconnect = function () {};
+      return node;
+    };
+
+    // Wrap createStereoPanner
+    const origCreateStereoPanner = typeof ctx.createStereoPanner === 'function' ? ctx.createStereoPanner.bind(ctx) : null;
+    ctx.createStereoPanner = function () {
+      let node = null;
+      if (origCreateStereoPanner) {
+        try { node = origCreateStereoPanner(); } catch (e) {}
+      }
+      if (!node) {
+        node = {
+          connect() {},
+          disconnect() {},
+          pan: { value: 0 }
+        };
+      }
+      ensureAudioParam(node.pan, 0);
+      if (typeof node.connect !== 'function') node.connect = function () {};
+      if (typeof node.disconnect !== 'function') node.disconnect = function () {};
+      return node;
+    };
+
+    // Wrap createBufferSource
+    const origCreateBufferSource = typeof ctx.createBufferSource === 'function' ? ctx.createBufferSource.bind(ctx) : null;
+    ctx.createBufferSource = function () {
+      let node = null;
+      if (origCreateBufferSource) {
+        try { node = origCreateBufferSource(); } catch (e) {}
+      }
+      if (!node) {
+        node = {
+          connect() {},
+          disconnect() {},
+          start() {},
+          stop() {},
+          buffer: null,
+          loop: false,
+          playbackRate: { value: 1 }
+        };
+      }
+      ensureAudioParam(node.playbackRate, 1);
+      if (node.detune) ensureAudioParam(node.detune, 0);
+      if (typeof node.connect !== 'function') node.connect = function () {};
+      if (typeof node.disconnect !== 'function') node.disconnect = function () {};
+      if (typeof node.start !== 'function') node.start = function () {};
+      if (typeof node.stop !== 'function') node.stop = function () {};
+      return node;
+    };
+
+    // Wrap createBiquadFilter
+    const origBiquad = typeof ctx.createBiquadFilter === 'function' ? ctx.createBiquadFilter.bind(ctx) : null;
+    ctx.createBiquadFilter = function () {
+      let node = null;
+      if (origBiquad) {
+        try { node = origBiquad(); } catch (e) {}
+      }
+      if (!node) {
+        node = {
+          connect() {},
+          disconnect() {},
+          frequency: { value: 350 },
+          Q: { value: 1 },
+          gain: { value: 0 }
+        };
+      }
+      ensureAudioParam(node.frequency, 350);
+      ensureAudioParam(node.Q, 1);
+      ensureAudioParam(node.gain, 0);
+      if (node.detune) ensureAudioParam(node.detune, 0);
+      if (typeof node.connect !== 'function') node.connect = function () {};
+      if (typeof node.disconnect !== 'function') node.disconnect = function () {};
+      return node;
+    };
+
+    if (!ctx.createPanner) {
+      ctx.createPanner = function () {
+        return {
+          connect() {},
+          disconnect() {},
+          setPosition() {},
+          setOrientation() {},
+          setVelocity() {},
+          panningModel: 'HRTF',
+          distanceModel: 'inverse',
+          refDistance: 1,
+          maxDistance: 10000,
+          rolloffFactor: 1,
+          coneInnerAngle: 360,
+          coneOuterAngle: 360,
+          coneOuterGain: 0
+        };
+      };
+    }
+
     if (!ctx.listener) {
       ctx.listener = {
         setPosition: () => {},
         setOrientation: () => {}
       };
     } else {
-      if (!ctx.listener.setPosition) ctx.listener.setPosition = () => {};
-      if (!ctx.listener.setOrientation) ctx.listener.setOrientation = () => {};
+      if (typeof ctx.listener.setPosition !== 'function') ctx.listener.setPosition = () => {};
+      if (typeof ctx.listener.setOrientation !== 'function') ctx.listener.setOrientation = () => {};
     }
+
+    if (!ctx.createBuffer) {
+      ctx.createBuffer = function (numberOfChannels, length, sampleRate) {
+        return new MiniAudioBuffer(numberOfChannels, length, sampleRate);
+      };
+    }
+
+    if (!ctx.destination) {
+      ctx.destination = { connect() {}, disconnect() {} };
+    }
+
+    if (!ctx.resume) {
+      ctx.resume = function () { ctx.state = 'running'; return Promise.resolve(); };
+    }
+    if (!ctx.suspend) {
+      ctx.suspend = function () { ctx.state = 'suspended'; return Promise.resolve(); };
+    }
+
+    const origDecodeAudioData = typeof ctx.decodeAudioData === 'function' ? ctx.decodeAudioData.bind(ctx) : null;
+    ctx.decodeAudioData = function (arrayBuffer, successCallback, errorCallback) {
+      const g = (typeof globalThis !== 'undefined') ? globalThis : (typeof window !== 'undefined' ? window : self);
+      const u8 = arrayBuffer ? new Uint8Array(arrayBuffer) : new Uint8Array(0);
+      const isWebM = u8.length >= 4 && u8[0] === 0x1A && u8[1] === 0x45 && u8[2] === 0xDF && u8[3] === 0xA3;
+
+      const doOpusDecode = () => {
+        if (g && g.JobHandlers && typeof g.JobHandlers['OpusDecode'] === 'function') {
+          return g.JobHandlers['OpusDecode']({ arrayBuffer }).then(res => {
+            const raw = (res && res.result) ? res.result : (res instanceof ArrayBuffer ? res : (res && res.buffer ? res.buffer : null));
+            const floats = raw instanceof Float32Array ? raw : (raw ? new Float32Array(raw) : new Float32Array(0));
+            const audioBuffer = ctx.createBuffer(1, floats.length, 48000);
+            if (audioBuffer && audioBuffer.getChannelData) {
+              audioBuffer.getChannelData(0).set(floats);
+            }
+            if (typeof successCallback === 'function') successCallback(audioBuffer);
+            return audioBuffer;
+          }).catch(err => {
+            console.error('[AudioContext] OpusDecode failed:', err);
+            if (typeof errorCallback === 'function') errorCallback(err);
+            throw err;
+          });
+        }
+        const err = new Error('Opus decoder not available');
+        if (typeof errorCallback === 'function') errorCallback(err);
+        return Promise.reject(err);
+      };
+
+      if (isWebM) {
+        return doOpusDecode();
+      }
+
+      if (origDecodeAudioData) {
+        try {
+          const p = origDecodeAudioData(arrayBuffer, (buf) => {
+            if (typeof successCallback === 'function') successCallback(buf);
+          }, (err) => {
+            console.warn('[AudioContext] Native decodeAudioData error, attempting Opus fallback:', err);
+            doOpusDecode().catch(e => {
+              if (typeof errorCallback === 'function') errorCallback(err || e);
+            });
+          });
+          if (p && typeof p.catch === 'function') {
+            p.catch(() => {
+              doOpusDecode().catch(() => {});
+            });
+          }
+          return p;
+        } catch (err) {
+          return doOpusDecode().catch(e => {
+            if (typeof errorCallback === 'function') errorCallback(err || e);
+            return Promise.reject(err || e);
+          });
+        }
+      } else {
+        return doOpusDecode();
+      }
+    };
+
     return ctx;
   }
-  SafeAudioContext.prototype = NativeAudioContext.prototype;
+  SafeAudioContext.prototype = (NativeAudioContext && NativeAudioContext.prototype) || MiniAudioContext.prototype;
   root.AudioContext = SafeAudioContext;
   root.webkitAudioContext = SafeAudioContext;
+  root.AudioBuffer = MiniAudioBuffer;
   if (typeof window !== 'undefined') {
     window.AudioContext = SafeAudioContext;
     window.webkitAudioContext = SafeAudioContext;
+    window.AudioBuffer = MiniAudioBuffer;
   }
   if (typeof globalThis !== 'undefined') {
     globalThis.AudioContext = SafeAudioContext;
     globalThis.webkitAudioContext = SafeAudioContext;
+    globalThis.AudioBuffer = MiniAudioBuffer;
+  }
+  if (typeof self !== 'undefined') {
+    self.AudioContext = SafeAudioContext;
+    self.webkitAudioContext = SafeAudioContext;
+    self.AudioBuffer = MiniAudioBuffer;
   }
 
 
@@ -1136,7 +1475,140 @@ if (typeof self !== 'undefined') {
   class MiniAudio extends MiniElement {
     constructor(src) {
       super('AUDIO');
+      this._src = '';
+      this._duration = 0;
+      this._paused = true;
+      this._ended = false;
+      this._innerAudio = (typeof tt !== 'undefined' && typeof tt.createInnerAudioContext === 'function')
+        ? tt.createInnerAudioContext()
+        : null;
+      this._listeners = new Map();
+      this.autoplay = false;
+      this.loop = false;
+      this.preload = 'auto';
+
+      if (this._innerAudio) {
+        this._innerAudio.onCanplay(() => this._emit('canplay'));
+        this._innerAudio.onPlay(() => {
+          this._paused = false;
+          this._ended = false;
+          this._emit('play');
+        });
+        this._innerAudio.onPause(() => {
+          this._paused = true;
+          this._emit('pause');
+        });
+        this._innerAudio.onStop(() => {
+          this._paused = true;
+          this._ended = true;
+          this._emit('ended');
+        });
+        this._innerAudio.onEnded(() => {
+          this._paused = true;
+          this._ended = true;
+          this._emit('ended');
+        });
+        this._innerAudio.onError((err) => this._emit('error', err));
+      }
+
       if (src) this.src = src;
+    }
+
+    get src() { return this._src; }
+    set src(val) {
+      this._src = val;
+      if (this._innerAudio && val) {
+        let clean = String(val);
+        if (clean.startsWith('https://minigame.local/')) clean = clean.substring('https://minigame.local/'.length);
+        if (clean.startsWith('file:///')) clean = clean.substring('file:///'.length);
+        if (clean.startsWith('./')) clean = clean.substring(2);
+        if (clean.startsWith('/')) clean = clean.substring(1);
+        this._innerAudio.src = clean;
+      }
+    }
+
+    get currentTime() { return this._innerAudio ? (this._innerAudio.currentTime || 0) : 0; }
+    set currentTime(val) { if (this._innerAudio) this._innerAudio.seek(val); }
+
+    get duration() { return this._innerAudio ? (this._innerAudio.duration || this._duration || 0) : (this._duration || 0); }
+    set duration(val) { this._duration = Number(val) || 0; }
+
+    get volume() { return this._innerAudio ? this._innerAudio.volume : 1; }
+    set volume(val) { if (this._innerAudio) this._innerAudio.volume = Math.max(0, Math.min(1, val)); }
+
+    get muted() { return this.volume === 0; }
+    set muted(val) { if (this._innerAudio) this._innerAudio.volume = val ? 0 : 1; }
+
+    get playbackRate() { return this._innerAudio ? (this._innerAudio.playbackRate || 1) : 1; }
+    set playbackRate(val) { if (this._innerAudio && this._innerAudio.playbackRate !== undefined) this._innerAudio.playbackRate = val; }
+
+    get paused() { return this._innerAudio ? (this._innerAudio.paused !== false) : (this._paused !== false); }
+    set paused(val) { this._paused = !!val; }
+
+    get readyState() { return 4; }
+    set readyState(val) {}
+
+    get ended() { return this._innerAudio ? (this._innerAudio.ended || false) : (this._ended || false); }
+    set ended(val) { this._ended = !!val; }
+
+    play() {
+      this._paused = false;
+      this._ended = false;
+      if (this._innerAudio) {
+        this._innerAudio.loop = this.loop;
+        this._innerAudio.play();
+      }
+      return Promise.resolve();
+    }
+
+    pause() {
+      this._paused = true;
+      if (this._innerAudio) {
+        this._innerAudio.pause();
+      }
+    }
+
+    canPlayType(mime) {
+      if (!mime) return '';
+      const m = String(mime).toLowerCase();
+      if (m.includes('webm') || m.includes('opus') || m.includes('vorbis') || m.includes('ogg')) {
+        return '';
+      }
+      if (
+        m.includes('mp4') ||
+        m.includes('h264') ||
+        m.includes('avc1') ||
+        m.includes('mp3') ||
+        m.includes('mpeg') ||
+        m.includes('m4a') ||
+        m.includes('aac') ||
+        m.includes('wav')
+      ) {
+        return 'maybe';
+      }
+      return '';
+    }
+
+    addEventListener(type, cb) {
+      if (!this._listeners.has(type)) this._listeners.set(type, new Set());
+      this._listeners.get(type).add(cb);
+    }
+
+    removeEventListener(type, cb) {
+      if (this._listeners.has(type)) {
+        this._listeners.get(type).delete(cb);
+      }
+    }
+
+    _emit(type, data) {
+      const set = this._listeners.get(type);
+      if (set) {
+        const evt = { type, target: this, ...data };
+        set.forEach(cb => { try { cb(evt); } catch (e) {} });
+      }
+      if (typeof this['on' + type] === 'function') {
+        try { this['on' + type]({ type, target: this, ...data }); } catch (e) {}
+      }
     }
   }
 
@@ -1190,9 +1662,30 @@ if (typeof self !== 'undefined') {
     constructor(family, source, descriptors) {
       this.family = family;
       this.source = source;
-      this.status = 'loaded';
+      this.status = 'unloaded';
     }
-    load() { return Promise.resolve(this); }
+    load() {
+      if (typeof tt !== 'undefined' && tt.loadFontFace) {
+        return new Promise((resolve) => {
+          let src = this.source;
+          if (typeof src === 'string' && !src.startsWith('url(')) src = `url("${src}")`;
+          tt.loadFontFace({
+            family: this.family,
+            source: src,
+            success: () => {
+              this.status = 'loaded';
+              resolve(this);
+            },
+            fail: (err) => {
+              console.warn('[FontFace] tt.loadFontFace fail:', this.family, err);
+              resolve(this);
+            }
+          });
+        });
+      }
+      this.status = 'loaded';
+      return Promise.resolve(this);
+    }
   }
 
   // URLSearchParams shim
@@ -1388,6 +1881,86 @@ if (typeof self !== 'undefined') {
     }
   }
 
+  function sanitizeFontString(val) {
+    if (!val) return '10px sans-serif';
+    let s = String(val).trim();
+    s = s.replace(/(\d+(?:\.\d+)?)\s*pt\b/gi, (_, n) => Math.max(1, Math.round(parseFloat(n) * (4 / 3))) + 'px');
+    s = s.replace(/["']/g, '');
+    return s;
+  }
+
+  function wrap2DContext(ctx) {
+    if (!ctx || ctx._c3FontPatched) return ctx;
+    ctx._c3FontPatched = true;
+    try {
+      const proto = Object.getPrototypeOf(ctx);
+      const desc = Object.getOwnPropertyDescriptor(proto, 'font') || Object.getOwnPropertyDescriptor(ctx, 'font');
+      if (desc && desc.set) {
+        const origSet = desc.set;
+        const origGet = desc.get;
+        Object.defineProperty(ctx, 'font', {
+          get() {
+            return origGet ? origGet.call(this) : (this._currentFont || '10px sans-serif');
+          },
+          set(val) {
+            const sanitized = sanitizeFontString(val);
+            this._currentFont = sanitized;
+            origSet.call(this, sanitized);
+          },
+          configurable: true,
+          enumerable: true
+        });
+      } else {
+        let curFont = '10px sans-serif';
+        Object.defineProperty(ctx, 'font', {
+          get() { return curFont; },
+          set(val) { curFont = sanitizeFontString(val); },
+          configurable: true,
+          enumerable: true
+        });
+      }
+    } catch (e) {}
+
+    try {
+      if (typeof ctx.measureText === 'function') {
+        const origMeasureText = ctx.measureText.bind(ctx);
+        ctx.measureText = function (text) {
+          const res = origMeasureText(text);
+          if (res) {
+            const fsMatch = String(this.font || '').match(/(\d+(?:\.\d+)?)\s*px/i);
+            const fs = fsMatch ? parseFloat(fsMatch[1]) : (parseFloat(this.font) || 16);
+            const ascent = Math.round(fs * 0.8);
+            const descent = Math.max(1, Math.round(fs * 0.2));
+            const baseline = this.textBaseline || 'alphabetic';
+
+            try {
+              if (baseline === 'top' || baseline === 'hanging') {
+                res.fontBoundingBoxAscent = 0;
+                res.fontBoundingBoxDescent = fs;
+              } else if (baseline === 'bottom') {
+                res.fontBoundingBoxAscent = fs;
+                res.fontBoundingBoxDescent = 0;
+              } else if (baseline === 'middle') {
+                res.fontBoundingBoxAscent = Math.round(fs * 0.5);
+                res.fontBoundingBoxDescent = Math.round(fs * 0.5);
+              } else {
+                if (typeof res.fontBoundingBoxAscent !== 'number' || res.fontBoundingBoxAscent <= 0) {
+                  res.fontBoundingBoxAscent = ascent;
+                }
+                if (typeof res.fontBoundingBoxDescent !== 'number' || res.fontBoundingBoxDescent <= 0) {
+                  res.fontBoundingBoxDescent = descent;
+                }
+              }
+            } catch (err) {}
+          }
+          return res;
+        };
+      }
+    } catch (e) {}
+
+    return ctx;
+  }
+
   function createAdaptedElement(tag) {
     const t = String(tag).toLowerCase();
     if (t === 'script') {
@@ -1402,9 +1975,26 @@ if (typeof self !== 'undefined') {
     if (t === 'canvas') {
       if (!mainCanvasAssigned) {
         mainCanvasAssigned = true;
-        return getOrCreateMainCanvas();
+        const mc = getOrCreateMainCanvas();
+        if (typeof mc.getContext === 'function') {
+          const origGetContext = mc.getContext.bind(mc);
+          mc.getContext = function (type, ...args) {
+            const ctx = origGetContext(type, ...args);
+            if (ctx && (type === '2d' || !type)) wrap2DContext(ctx);
+            return ctx;
+          };
+        }
+        return mc;
       }
-            const c = typeof tt !== 'undefined' && tt.createCanvas ? tt.createCanvas() : new MiniElement('CANVAS');
+      const c = typeof tt !== 'undefined' && tt.createCanvas ? tt.createCanvas() : new MiniElement('CANVAS');
+      if (typeof c.getContext === 'function') {
+        const origGetContext = c.getContext.bind(c);
+        c.getContext = function (type, ...args) {
+          const ctx = origGetContext(type, ...args);
+          if (ctx && (type === '2d' || !type)) wrap2DContext(ctx);
+          return ctx;
+        };
+      }
       if (!c.tagName) c.tagName = 'CANVAS';
       if (!c.nodeName) c.nodeName = 'CANVAS';
       if (!c.focus) c.focus = () => {};
@@ -1442,6 +2032,9 @@ if (typeof self !== 'undefined') {
       const img = typeof tt !== 'undefined' && tt.createImage ? tt.createImage() : new MiniElement('IMG');
       miniGameImages.add(img);
       return img;
+    }
+    if (t === 'audio') {
+      return new MiniAudio();
     }
     return new MiniElement(tag);
   }

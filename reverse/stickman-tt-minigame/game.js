@@ -240,12 +240,76 @@ if (typeof tt !== 'undefined' && tt.onShow) {
   });
 }
 
+// Preload Chinese font
+if (typeof tt !== 'undefined' && tt.loadFontFace) {
+  tt.loadFontFace({
+    family: 'font',
+    source: 'url("fonts/font.ttf")',
+    success: () => { console.log('[Stickman] Preloaded font.ttf as "font"'); },
+    fail: (e) => { console.warn('[Stickman] font.ttf load error:', e); }
+  });
+  tt.loadFontFace({
+    family: 'Jersey25-Regular',
+    source: 'url("fonts/font.ttf")',
+    success: () => { console.log('[Stickman] Preloaded font.ttf as "Jersey25-Regular" alias'); },
+    fail: (e) => { console.warn('[Stickman] Jersey25-Regular alias load error:', e); }
+  });
+  tt.loadFontFace({
+    family: 'Tomorrow-Medium',
+    source: 'url("fonts/font.ttf")',
+    success: () => { console.log('[Stickman] Preloaded font.ttf as "Tomorrow-Medium" alias'); },
+    fail: (e) => { console.warn('[Stickman] Tomorrow-Medium alias load error:', e); }
+  });
+}
+
+// Preload Opus WASM decoder for in-thread WebM audio decoding
+try {
+  let wasmBinary = null;
+  if (typeof require === 'function') {
+    try {
+      const embeddedWasm = require('./scripts/embedded-wasm.js');
+      if (embeddedWasm && embeddedWasm.getOpusWasmBuffer) {
+        wasmBinary = embeddedWasm.getOpusWasmBuffer();
+        console.log('[Stickman] Loaded opus.wasm from embedded-wasm.js, byteLength:', wasmBinary.byteLength);
+      }
+    } catch (e) {
+      console.warn('[Stickman] embedded-wasm.js require warning:', e);
+    }
+  }
+  const g = (typeof globalThis !== 'undefined') ? globalThis : (typeof window !== 'undefined' ? window : self);
+  const sentBufs = g.sentBuffers || new Map();
+  g.sentBuffers = sentBufs;
+  if (typeof window !== 'undefined') window.sentBuffers = sentBufs;
+  if (typeof self !== 'undefined') self.sentBuffers = sentBufs;
+
+  const sentBls = g.sentBlobs || new Map();
+  g.sentBlobs = sentBls;
+  if (typeof window !== 'undefined') window.sentBlobs = sentBls;
+  if (typeof self !== 'undefined') self.sentBlobs = sentBls;
+
+  g.JobHandlers = g.JobHandlers || {};
+  g.Module = g.Module || {};
+  if (wasmBinary) {
+    sentBufs.set('opus-decoder-wasm', wasmBinary);
+    g.Module.wasmBinary = wasmBinary;
+    globalThis.__opusWasmBuffer = wasmBinary;
+    console.log('[Stickman] Set opus-decoder-wasm binary in memory');
+  }
+  if (typeof require === 'function') {
+    require('./scripts/opus.wasm.js');
+    console.log('[Stickman] Preloaded opus.wasm.js successfully');
+  }
+} catch (e) {
+  console.warn('[Stickman] Failed to preload opus.wasm:', e);
+}
+
 // Dynamic script loader for Construct 3 runtime scripts
 const scriptModules = {
   'scripts/c3main.js': () => { require('./scripts/c3main.minigame.js'); },
   'scripts/c3main.minigame.js': () => { require('./scripts/c3main.minigame.js'); },
   'scripts/c3runtime.js': () => { require('./scripts/c3runtime.js'); },
-  'scripts/objRefTable.js': () => { require('./scripts/objRefTable.js'); }
+  'scripts/objRefTable.js': () => { require('./scripts/objRefTable.js'); },
+  'scripts/opus.wasm.js': () => { require('./scripts/opus.wasm.js'); }
 };
 
 globalThis.__loadScript = async function (src) {

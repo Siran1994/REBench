@@ -52,7 +52,7 @@ var SDKManager = {
   interstitialAdUnitId: "",
   quietDevelopmentFallback: false,
   // 控制每次进入游戏时是否删除存档（便于测试初始流程，设为 true 则每次启动清空存档，默认 false）
-  clearSaveOnStart: true,
+  clearSaveOnStart: false,
   rewarded: null,
   interstitial: null,
 

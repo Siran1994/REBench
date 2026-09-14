@@ -1,29 +1,442 @@
 {
-  "source": "D:\\Desktop\\REBench\\apk\\Idle Ants - Simulator Game_4.15.22_apkcombo.com.xapk",
+  "source": "D:\\Desktop\\REBench\\apk\\Blumgi Slime_1.1.0.1_apkcombo.com.xapk",
   "engine_result": {
-    "engine": "Unity",
-    "status": "TERMINATE",
-    "action_message": "【终止流程】检测到该 APK 为 Unity 引擎开发，按照流程规范立即终止逆向移植流程！请勿盲目反编译移植。",
+    "engine": "Construct 3",
+    "status": "PROCEED",
+    "wrapper": "Cordova",
+    "action_message": "【通过门禁】检测到该 APK 为 Construct 3 (Cordova) 引擎开发，允许继续执行完整抖音小游戏移植流程！",
     "details": {
-      "unity_evidence": [
-        "assets/bin/data/managed/metadata/global-metadata.dat",
-        "assets/bin/data/managed/resources/newtonsoft.json.dll-resources.dat",
-        "assets/bin/data/managed/resources/system.data.dll-resources.dat",
-        "assets/bin/data/managed/resources/system.drawing.dll-resources.dat",
-        "assets/bin/data/managed/resources/mscorlib.dll-resources.dat",
-        "lib/arm64-v8a/libunity.so",
-        "lib/armeabi-v7a/libunity.so",
-        "lib/arm64-v8a/libil2cpp.so",
-        "lib/armeabi-v7a/libil2cpp.so",
-        "assets/bin/data/managed/metadata/global-metadata.dat",
-        "assets/bin/data/managed/resources/newtonsoft.json.dll-resources.dat",
-        "assets/bin/data/managed/resources/system.data.dll-resources.dat",
-        "assets/bin/data/managed/resources/system.drawing.dll-resources.dat",
-        "assets/bin/data/managed/resources/mscorlib.dll-resources.dat"
+      "unity_evidence": [],
+      "c3_evidence": [
+        "assets/www/scripts/c3runtime.js",
+        "assets/www/scripts/c3main.js",
+        "assets/www/scripts/c3runtime.js",
+        "assets/www/scripts/c3main.js",
+        "assets/www/data.json",
+        "assets/www/data.json",
+        "assets/www/images/airpusher-sheet0.png",
+        "assets/www/images/bghome-sheet0.png",
+        "assets/www/images/bgtuto-sheet0.png",
+        "assets/www/images/colcenter-sheet0.png",
+        "assets/www/images/colcenter2-sheet0.png",
+        "assets/www/scripts/main.js"
       ],
-      "c3_evidence": [],
       "other_evidence": [],
-      "wrapper": null
+      "wrapper": "Cordova"
+    }
+  },
+  "audit": {
+    "engine": "Construct 3",
+    "app_name": "Blumgi Slime",
+    "app_version": null,
+    "object_types_count": 150,
+    "families_count": 4,
+    "layouts_count": 216,
+    "layouts": [
+      "Objects",
+      "Home",
+      "Home2",
+      "Home3",
+      "2PScoreScreen",
+      "2PWinner",
+      "Layout 1",
+      "Layout 2",
+      "Layout 3",
+      "Layout 4",
+      "Layout 5",
+      "Layout 6",
+      "Layout 7",
+      "Layout 8",
+      "Layout 9",
+      "Layout 10",
+      "Layout 11",
+      "Layout 12",
+      "Layout 13",
+      "Layout 14",
+      "Layout 15",
+      "transition1",
+      "TestColorManager",
+      "Loader",
+      "Loader2",
+      "Layout 16",
+      "GlobalLayers",
+      "Level 1",
+      "Level 2",
+      "Level 3",
+      "Level 4",
+      "Level 5",
+      "Level 6",
+      "Level 7",
+      "Level 8",
+      "Level 9",
+      "Level 10",
+      "Level 11",
+      "Level 12",
+      "Level 13",
+      "Level 14",
+      "Level 15",
+      "Level 16",
+      "Level 17",
+      "Level 18",
+      "Level 19",
+      "Level 20",
+      "Level 21",
+      "Level 22",
+      "Level 23",
+      "Level 24",
+      "Level 25",
+      "Level 26",
+      "Level 27",
+      "Level 28",
+      "Level 29",
+      "Level 30",
+      "Level 31",
+      "Level 32",
+      "Level 33",
+      "Level 34",
+      "Level 35",
+      "Level 36",
+      "Level 37",
+      "Level 38",
+      "Level 39",
+      "Level 40",
+      "Level 41",
+      "Level 42",
+      "Level 43",
+      "Level 44",
+      "Level 45",
+      "Level 46",
+      "Level 47",
+      "Level 48",
+      "Level 49",
+      "Level 50",
+      "Level 51",
+      "Level 52",
+      "Level 53",
+      "Level 54",
+      "Level 55",
+      "Level 56",
+      "Level 57",
+      "Level 58",
+      "Level 59",
+      "Level 60",
+      "Level 61",
+      "Level 62",
+      "Level 63",
+      "Level 64",
+      "Level 65",
+      "Level 66",
+      "Level 67",
+      "Level 68",
+      "Level 69",
+      "Level 70",
+      "Level 71",
+      "Level 72",
+      "Level 73",
+      "Level 74",
+      "Level 75",
+      "Level 76",
+      "Level 77",
+      "Level 78",
+      "Level 79",
+      "Level 80",
+      "Level 81",
+      "Level 82",
+      "Level 83",
+      "Level 84",
+      "Level 85",
+      "Level 86",
+      "Level 87",
+      "Level 88",
+      "Level 89",
+      "Level 90",
+      "Level 91",
+      "Level 92",
+      "Level 93",
+      "Level 94",
+      "Level 95",
+      "Level 96",
+      "Level 97",
+      "Level 98",
+      "Level 99",
+      "Level 100",
+      "Level 101",
+      "Level 102",
+      "Level 103",
+      "Level 104",
+      "Level 105",
+      "Level 106",
+      "Level 107",
+      "Level 108",
+      "Level 109",
+      "Level 110",
+      "Level 111",
+      "Level 112",
+      "Level 113",
+      "Level 114",
+      "Level 115",
+      "Level 116",
+      "Level 117",
+      "Level 118",
+      "Level 119",
+      "Level 120",
+      "Level 121",
+      "Level 122",
+      "Level 123",
+      "Level 124",
+      "Level 125",
+      "Level 126",
+      "Level 127",
+      "Level 128",
+      "Level 129",
+      "Level 130",
+      "Level 131",
+      "Level 132",
+      "Level 133",
+      "Level 135",
+      "Level 134",
+      "Level 136",
+      "Level 137",
+      "Level 138",
+      "Level 139",
+      "Level 140",
+      "Level 141",
+      "Level 142",
+      "Level 143",
+      "Level 144",
+      "Level 145",
+      "Level 146",
+      "Level 147",
+      "Level 148",
+      "Level 149",
+      "Level 150",
+      "Level 151",
+      "Level2P 152",
+      "Level2P 153",
+      "Level2P 154",
+      "Level2P 155",
+      "Level2P 156",
+      "Level2P 157",
+      "Level2P 158",
+      "Level2P 159",
+      "Level2P 160",
+      "Level2P 161",
+      "Level2P 162",
+      "Level2P 163",
+      "Level2P 164",
+      "Level2P 165",
+      "Level2P 166",
+      "Level2P 167",
+      "Level2P 168",
+      "Level2P 169",
+      "Level2P 170",
+      "Level2P 171",
+      "Level2P 172",
+      "Level2P 173",
+      "Level2P 174",
+      "Level2P 175",
+      "Level2P 176",
+      "Level2P 177",
+      "Level2P 178",
+      "Level2P 179",
+      "Level2P 180",
+      "Level2P 181",
+      "Level2P 182",
+      "Level2P 183",
+      "Level2P 184",
+      "Level2P 185",
+      "Level2P 186",
+      "Level2P 187",
+      "Level2P 188",
+      "Level2P 189"
+    ],
+    "event_sheets_count": 9,
+    "event_sheet_stats": [
+      {
+        "name": "Event sheet 1",
+        "top_level": 58
+      },
+      {
+        "name": "ColorManager",
+        "top_level": 1
+      },
+      {
+        "name": "eLoader",
+        "top_level": 1
+      },
+      {
+        "name": "ePOKIManager",
+        "top_level": 13
+      },
+      {
+        "name": "transition",
+        "top_level": 2
+      },
+      {
+        "name": "SaveSystem",
+        "top_level": 2
+      },
+      {
+        "name": "Home2P",
+        "top_level": 11
+      },
+      {
+        "name": "ScoreScreen",
+        "top_level": 6
+      },
+      {
+        "name": "eAdsManager",
+        "top_level": 16
+      }
+    ],
+    "total_logic_nodes": 110,
+    "tilemap_objects_count": 25,
+    "tilemap_objects": [
+      {
+        "index": 1,
+        "name": "ground",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 6,
+        "name": "squarePattern",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 8,
+        "name": "waterGraphs",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 15,
+        "name": "triggerCam",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 27,
+        "name": "airPusher",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 33,
+        "name": "colCenter",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 34,
+        "name": "TiledBackground2",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 35,
+        "name": "colSquare",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 54,
+        "name": "palmTreeTrunk",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 60,
+        "name": "UI_simplePanel_tilBG",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 61,
+        "name": "UI_loadBar_tilBG",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 70,
+        "name": "UIBG",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 72,
+        "name": "colCenter2",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 73,
+        "name": "ParentObject",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 75,
+        "name": "plainColorBottom",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 77,
+        "name": "flash",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 88,
+        "name": "BGTuto",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 95,
+        "name": "finishTrigger",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 100,
+        "name": "colCenterIce",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 110,
+        "name": "fadeDark",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 121,
+        "name": "fadeDark2",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 123,
+        "name": "finalCrown",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 130,
+        "name": "BGHome",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 139,
+        "name": "winLight",
+        "plugin": "TiledBg"
+      },
+      {
+        "index": 140,
+        "name": "winLight2",
+        "plugin": "TiledBg"
+      }
+    ],
+    "audio_files_count": 11,
+    "fonts_count": 1,
+    "fonts": [
+      "Rounds Black"
+    ],
+    "plugins_detected": [
+      "Mouse",
+      "NinePatch",
+      "Particles",
+      "PlatformInfo",
+      "TiledBg",
+      "Touch",
+      "advert"
+    ],
+    "features_detected": {
+      "c3runtime": true,
+      "c3main": true,
+      "cordova": true,
+      "tilemap_used": true
     }
   }
 }
