@@ -109,30 +109,140 @@ globalThis.atob = window.atob = self.atob = _polyAtob;
 
 ---
 
-## 3. iOS 重启游戏变竖屏问题
+## 3. 横屏小游戏重启变竖屏与事件死循环彻底防护
 
 ### 现象
-在苹果手机端点击右上角“…”菜单选择“重新进入小游戏”后，原横屏游戏画面变成了竖屏显示，布局被压扁。
+1. **重启变竖屏**：首次扫码进入游戏正常为横屏，但在手机端点击右上角“…”菜单选择“重新进入小游戏”（热重启）后，游戏画面被强制呈现为竖屏，画面压缩变形或被黑边夹在中间。
+2. **加载卡死与日志循环**：控制台持续高速打印 `[C3 Adapter] Resizing screen to landscape (tt.onDeviceOrientationChange)...` 与 `[Orientation] Set landscape success...`，游戏死锁卡在加载页面无法进入关卡。
 
-### 根因
-iOS 抖音小游戏宿主在重启实例时，默认以手机当前物理持握姿态初始化窗口，如果未显式锁定方向，视口宽高可能颠倒。
+### 深度根因分析
+1. **宿主重启时序与手持姿态复位**：
+   - 首次扫码拉起时，抖音容器先读取 `game.json` 中的 `"deviceOrientation": "landscape"`，原生 Activity 提前转好横屏；
+   - 点击右上角“…”弹出原生底部面板，随后点击“重新进入小游戏”时，原生模态面板关闭过程中 Activity 往往会临时复位到手机的物理手持姿态（玩家通常是竖直握持手机）；
+   - 在此瞬态下，`tt.getSystemInfoSync()` 返回的 `windowWidth` 与 `windowHeight` 是尚未旋转的竖屏参数（如 393 × 852），若适配层未做防呆，会导致 Canvas 物理分辨率与 C3 视口被初始化为竖屏。
+2. **API 传参与时序问题**：
+   - 抖音与微信平台中存在历史参数差异，单纯传递 `{ value: 'landscape' }` 在新版基础库或特定机型上会被忽略，标准参数需同时兼容 `{ orientation: 'landscape', value: 'landscape' }` 及字符串 `'landscape'`；
+   - 系统转屏为异步原生操作（耗时约 50ms~300ms），必须在 `game.js` 第一行立即触发。
+3. **致命自激死循环（Infinite Event Loop）**：
+   - **典型错误实现**：在 `tt.onDeviceOrientationChange` 回调中无条件调用 `forceLandscapeOrientation()` / `tt.setDeviceOrientation()`；
+   - 转屏成功后平台底层立即派发 `onDeviceOrientationChange` 事件，回调中又触发 `setDeviceOrientation`，瞬间形成 **每秒数百次的无限事件回环**；
+   - 单线程事件队列被彻底占满，C3 引擎资源加载和主循环被剥夺 CPU 时间，表现为永久卡在 Loading Logo。
+4. **事件吞噬与未去重震荡**：
+   - 适配层 `handleScreenResize` 若写死 `if (root.innerWidth === w && root.innerHeight === h) return;`，会吞噬原生系统后续发来的有效 `resize` 通知，导致 C3 永远无法校正视口；
+   - 反之若完全不判断，又会在高频事件下触发连续重绘震荡。
 
-### 解法
-1. `game.json` 显式声明：
-   ```json
-   { "deviceOrientation": "landscape" }
-   ```
-2. 在 `game.js` 和适配器中监听 `tt.onShow`，强行重设方向：
-   ```javascript
-   if (tt.setDeviceOrientation) {
-     tt.setDeviceOrientation({ value: 'landscape' });
-   }
-   tt.onShow(() => {
-     if (tt.setDeviceOrientation) {
-       tt.setDeviceOrientation({ value: 'landscape' });
-     }
-   });
-   ```
+### 标准解决方案
+
+#### 1. 入口第一行立即加锁并防抖转屏（`game.js`）
+```javascript
+// Force & Lock Landscape Orientation immediately on entry
+let _isSettingOrientation = false;
+const forceLandscapeOrientation = function() {
+  if (_isSettingOrientation) return;
+  // 当前若已为横屏，直接跳过，切断无限调用链
+  if (typeof tt !== 'undefined' && tt.getSystemInfoSync) {
+    try {
+      const info = tt.getSystemInfoSync();
+      if (info && info.windowWidth && info.windowHeight && info.windowWidth > info.windowHeight) {
+        return;
+      }
+    } catch (e) {}
+  }
+  _isSettingOrientation = true;
+  const trySet = (fn, target) => {
+    if (typeof fn === 'function') {
+      try {
+        fn.call(target, {
+          orientation: 'landscape',
+          value: 'landscape',
+          direction: 'landscape',
+          success: (res) => { _isSettingOrientation = false; },
+          fail: (err) => { _isSettingOrientation = false; }
+        });
+      } catch (e) { _isSettingOrientation = false; }
+      try { fn.call(target, { orientation: 'landscape' }); } catch (e) {}
+      try { fn.call(target, { value: 'landscape' }); } catch (e) {}
+      try { fn.call(target, 'landscape'); } catch (e) {}
+    }
+  };
+  if (typeof tt !== 'undefined') {
+    trySet(tt.setDeviceOrientation, tt);
+    trySet(tt.setScreenOrientation, tt);
+    trySet(tt.setPreferredOrientation, tt);
+  }
+  if (typeof wx !== 'undefined') {
+    trySet(wx.setDeviceOrientation, wx);
+    trySet(wx.setScreenOrientation, wx);
+  }
+  setTimeout(() => { _isSettingOrientation = false; }, 500);
+};
+if (typeof globalThis !== 'undefined') globalThis.__forceLandscapeOrientation = forceLandscapeOrientation;
+forceLandscapeOrientation();
+
+// 监听生命周期：坚决不要在 onDeviceOrientationChange 中无条件调用 forceLandscapeOrientation()！
+if (typeof tt !== 'undefined') {
+  if (tt.onShow) {
+    tt.onShow(() => { forceLandscapeOrientation(); });
+  }
+  if (tt.onDeviceOrientationChange) {
+    tt.onDeviceOrientationChange((res) => {
+      // 只有在方向被意外切为竖屏时才介入纠偏
+      if (res && (res.value === 'portrait' || res.orientation === 'portrait')) {
+        forceLandscapeOrientation();
+      }
+    });
+  }
+  if (tt.onWindowResize) {
+    tt.onWindowResize((res) => {
+      if (res && res.windowWidth && res.windowHeight && res.windowWidth < res.windowHeight) {
+        forceLandscapeOrientation();
+      }
+    });
+  }
+}
+setTimeout(forceLandscapeOrientation, 200);
+```
+
+#### 2. 适配层物理分辨率强制收敛与去重防抖（`adapter/tt-c3-adapter.js`）
+```javascript
+// 1. 物理 Canvas 缓冲区分辨率强制锁定为横屏（长边为宽，短边为高）
+const targetW = Math.round(root.innerWidth * (root.devicePixelRatio || 1));
+const targetH = Math.round(root.innerHeight * (root.devicePixelRatio || 1));
+mainCanvas.width = Math.max(targetW, targetH);
+mainCanvas.height = Math.min(targetW, targetH);
+
+// 2. handleScreenResize 去重防抖（已是目标横屏宽高时直接返回，避免自激派发）
+function handleScreenResize(rawW, rawH, source) {
+  if (!rawW || !rawH) return;
+  const w = Math.max(rawW, rawH);
+  const h = Math.min(rawW, rawH);
+  const targetW = Math.round(w * (root.devicePixelRatio || 1));
+  const targetH = Math.round(h * (root.devicePixelRatio || 1));
+
+  if (root.innerWidth === w && root.innerHeight === h && 
+      mainCanvas && mainCanvas.width === targetW && mainCanvas.height === targetH) {
+    return; // 尺寸一致且无错位，跳过派发
+  }
+
+  if (rawW < rawH && typeof globalThis.__forceLandscapeOrientation === 'function') {
+    globalThis.__forceLandscapeOrientation();
+  }
+
+  root.innerWidth = w;
+  root.innerHeight = h;
+  if (mainCanvas) {
+    mainCanvas.style.width = w + 'px';
+    mainCanvas.style.height = h + 'px';
+    mainCanvas.width = targetW;
+    mainCanvas.height = targetH;
+  }
+  root.dispatchEvent({ type: 'resize' });
+}
+```
+
+#### 3. C3 运行时重排强制刷新
+- 在 `scripts/main.js` 的 `_OnSetTargetOrientation` 接收到目标方向后，立即调用 `_TrySetTargetOrientation()` 触发原生锁定；
+- 在 `scripts/c3runtime.js` 的 `CanvasManager._OnWindowResize` 中，将 `this.SetSize(w, h)` 改为 `this.SetSize(w, h, !0)`，确保收到 resize 时强制重刷 WebGL 视口与投影矩阵。
 
 ---
 

@@ -271,18 +271,80 @@ if (typeof window !== 'undefined') {
   window.C3_IsSupported = true;
 }
 
-// Set & Lock Device Orientation (adjust to 'landscape' or 'portrait' based on game.json)
-if (typeof tt !== 'undefined') {
-  const applyOrientation = () => {
-    if (tt.setDeviceOrientation) {
+// Set & Lock Device Orientation with Anti-Loop protection
+let _isSettingOrientation = false;
+const forceOrientation = function(targetMode = 'landscape') {
+  if (_isSettingOrientation) return;
+  if (typeof tt !== 'undefined' && tt.getSystemInfoSync) {
+    try {
+      const info = tt.getSystemInfoSync();
+      if (info && info.windowWidth && info.windowHeight) {
+        const isLandscape = info.windowWidth > info.windowHeight;
+        if ((targetMode === 'landscape' && isLandscape) || (targetMode === 'portrait' && !isLandscape)) {
+          return;
+        }
+      }
+    } catch (e) {}
+  }
+  _isSettingOrientation = true;
+  const trySet = (fn, target) => {
+    if (typeof fn === 'function') {
       try {
-        tt.setDeviceOrientation({ value: 'landscape' }); // or 'portrait'
-      } catch (e) {}
+        fn.call(target, {
+          orientation: targetMode,
+          value: targetMode,
+          direction: targetMode,
+          success: (res) => {
+            _isSettingOrientation = false;
+          },
+          fail: (err) => {
+            _isSettingOrientation = false;
+          }
+        });
+      } catch (e) {
+        _isSettingOrientation = false;
+      }
+      try { fn.call(target, { orientation: targetMode }); } catch (e) {}
+      try { fn.call(target, { value: targetMode }); } catch (e) {}
+      try { fn.call(target, targetMode); } catch (e) {}
     }
   };
-  applyOrientation();
-  if (tt.onShow) tt.onShow(applyOrientation);
+  if (typeof tt !== 'undefined') {
+    trySet(tt.setDeviceOrientation, tt);
+    trySet(tt.setScreenOrientation, tt);
+    trySet(tt.setPreferredOrientation, tt);
+  }
+  if (typeof wx !== 'undefined') {
+    trySet(wx.setDeviceOrientation, wx);
+    trySet(wx.setScreenOrientation, wx);
+  }
+  setTimeout(() => { _isSettingOrientation = false; }, 500);
+};
+
+if (typeof globalThis !== 'undefined') globalThis.__forceOrientation = forceOrientation;
+if (typeof window !== 'undefined') window.__forceOrientation = forceOrientation;
+forceOrientation('landscape');
+
+if (typeof tt !== 'undefined') {
+  if (tt.onShow) {
+    tt.onShow(() => forceOrientation('landscape'));
+  }
+  if (tt.onDeviceOrientationChange) {
+    tt.onDeviceOrientationChange((res) => {
+      if (res && (res.value === 'portrait' || res.orientation === 'portrait')) {
+        forceOrientation('landscape');
+      }
+    });
+  }
+  if (tt.onWindowResize) {
+    tt.onWindowResize((res) => {
+      if (res && res.windowWidth && res.windowHeight && res.windowWidth < res.windowHeight) {
+        forceOrientation('landscape');
+      }
+    });
+  }
 }
+setTimeout(() => forceOrientation('landscape'), 200);
 
 // Dynamic script loader for Construct 3 runtime scripts
 globalThis.__loadScript = async function (src) {
@@ -428,6 +490,22 @@ async function initGame() {
   // Check clearSaveOnStart before starting C3 main runtime
   if (typeof globalThis !== 'undefined' && globalThis.SDKManager && globalThis.SDKManager.clearSaveOnStart) {
     globalThis.SDKManager.clearSaveData();
+  }
+
+  // Load Chinese font & alias mapping (e.g. mapping original English font 'Rounds Black' -> 'fonts/font.ttf')
+  try {
+    if (typeof tt !== 'undefined' && tt.loadFontFace) {
+      tt.loadFontFace({
+        family: 'GameFontZh',
+        source: 'url("fonts/font.ttf")',
+        success: () => console.log('[MiniGame] Loaded GameFontZh successfully'),
+        fail: (err) => console.warn('[MiniGame] Failed to load GameFontZh:', err)
+      });
+      // Register alias for the original font family in data.json so no Text instance needs editing:
+      // tt.loadFontFace({ family: 'Rounds Black', source: 'url("fonts/font.ttf")' });
+    }
+  } catch (e) {
+    console.warn('[MiniGame] Error calling tt.loadFontFace:', e);
   }
 
   console.log('[MiniGame] Starting C3 main runtime...');

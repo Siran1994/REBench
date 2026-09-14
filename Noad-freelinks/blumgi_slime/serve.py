@@ -11,6 +11,9 @@ mimetypes.add_type('application/javascript', '.js')
 mimetypes.add_type('application/wasm', '.wasm')
 mimetypes.add_type('application/json', '.json')
 mimetypes.add_type('text/css', '.css')
+mimetypes.add_type('font/ttf', '.ttf')
+mimetypes.add_type('audio/webm', '.webm')
+mimetypes.add_type('image/webp', '.webp')
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8089
 
@@ -20,7 +23,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         '.js': 'application/javascript',
         '.json': 'application/json',
         '.wasm': 'application/wasm',
-        '.css': 'text/css'
+        '.css': 'text/css',
+        '.ttf': 'font/ttf',
+        '.webm': 'audio/webm',
+        '.webp': 'image/webp'
     })
 
     def end_headers(self):

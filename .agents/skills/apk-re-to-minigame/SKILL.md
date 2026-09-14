@@ -52,6 +52,8 @@ digraph engine_decision_flow {
 | **素材分包与入口生成** | `node <skill>/scripts/embed-images.js <minigame_project_dir>` | 确保分包内存在必需的 `game.js` |
 | **WASM 二进制内嵌** | `node <skill>/scripts/embed-wasm.js <minigame_project_dir>` | 自动将 `.wasm` 转为 Base64 JS 模块，绕开抖音打包过滤白名单 |
 | **4MB 主包与规范校验** | `node <skill>/scripts/validate-package.js <minigame_project_dir>` | 严查主包体积及分包合法性 |
+| **中文字体加载与别名映射** | `tt.loadFontFace({ family: '<原字体名>', source: 'url("fonts/font.ttf")' })` | 零成本全量生效中文字体，免逐个 Text 实例替换 |
+| **横竖屏锁屏与防死循环** | 互斥锁 `_isSettingOrientation` + `windowWidth > windowHeight` 判断 | 彻底解决小游戏重启变竖屏及转屏事件自激死循环 |
 | **打包 CDN 无广告链接** | `node <skill>/scripts/export-noad-freelink.js -s <web_dir> -o Noad-freelinks/<name> -n <game_name>` | 生成可直接上传 CDN 并运行在浏览器的免广告试玩工程 |
 | **商业化与平台管理器模板** | `<skill>/templates/sdk-manager.template.js` | 包含统一广告调度、15s熔断、开发调试降级、桌面/侧边栏及清档开关 |
 | **无广告试玩垫片模板** | `<skill>/templates/noad-bridge.template.js` | 包含 `tt`/`PokiSDK`/`AppLovin` 激励视频自动发放与 Toast 提示 |
@@ -142,6 +144,8 @@ python <skill>/scripts/inspect_apk.py "<path_to_game.apk>" --extract-web ./recov
    - **本地存储持久化**：将 `localStorage` 同步桥接至 `tt.getStorageSync`/`tt.setStorageSync`，防止 IndexedDB 缺失导致存档内存化丢失。
    - **W3C 几何对象与 Response 补齐**：提供 `DOMRect`、`DOMPoint`、`DOMQuad`、`MiniResponse` 垫片。
    - **WASM 请求就地拦截**：在 `fetch` 垫片中拦截 `noise.wasm` 与 `opus.wasm.wasm`，直接返回内嵌 ArrayBuffer 响应。
+   - **横竖屏同步与 Canvas 尺寸去抖 (Screen Resize De-bounce)**：
+     在 `handleScreenResize` 中实现去抖保护：若当前 `innerWidth`/`innerHeight` 与 Canvas 物理像素尺寸已匹配目标横屏尺寸，立即 `return`，防止多重系统事件派发导致 C3 WebGL 渲染队列阻塞与瞬时压扁。
 2. **部署商业化与平台调度管理器 (`SDKManager.js`)**：
    复制 `<skill>/templates/sdk-manager.template.js` 到小游戏根目录 `SDKManager.js`：
    - **广告调用统一收拢**：所有激励视频 (`showRewarded`) 与插屏广告 (`showInterstitial`) 均走管理器调度，自带 15s 超时熔断防悬挂。
@@ -160,6 +164,19 @@ python <skill>/scripts/inspect_apk.py "<path_to_game.apk>" --extract-web ./recov
    - **`atob` / `btoa`**：挂载全局纯 JS base64 编解码方法（防 Android Krypton 报 `atob is not defined`）。
    - **`visualViewport`**：提供具备 `addEventListener` 与尺寸查询能力的事件目标（防 Android 扫码黑屏）。
    - **引入 SDKManager 与存档清空检测**：在启动时执行 `if (SDKManager.clearSaveOnStart) SDKManager.clearSaveData();`。
+   - **横竖屏锁定与热重启防死循环机制 (Anti-Loop Orientation Lock)**：
+     > [!CAUTION]
+     > 严禁在 `tt.onDeviceOrientationChange` 中无条件调用 `tt.setDeviceOrientation()`！底层在转屏成功后会再次派发转屏事件，导致**每秒数百次的自激死循环**，使小游戏永远卡死在加载界面。
+     - 设置 `_isSettingOrientation` 状态锁；
+     - 调用前通过 `tt.getSystemInfoSync()` 判断当前是否已处于横屏（`windowWidth > windowHeight` 则直接退出）；
+     - 仅当事件明确报告 `res.value === 'portrait'` 或 `windowWidth < windowHeight` 时才触发转屏；
+     - 兼容全参数签名：`{ orientation: 'landscape', value: 'landscape', direction: 'landscape' }` 及直接传字符串 `'landscape'`。
+   - **中文字体动态加载与原字体别名重映射 (Font Alias Mapping)**：
+     - 在主逻辑加载前调用 `tt.loadFontFace`，不仅注册中文字体名，还将**游戏原英文字体名（如 `Rounds Black`）作为 alias 注册**：
+       ```javascript
+       tt.loadFontFace({ family: 'Rounds Black', source: 'url("fonts/font.ttf")' });
+       ```
+     - 全局 Text 实例无需逐个修改配置，自动无缝渲染为中文字体。
    - **严格时序的分包异步加载与数据/WASM 预读**：
      ```javascript
      await Promise.all([loadSub('images'), loadSub('media'), loadSub('data')]);
@@ -195,11 +212,30 @@ python <skill>/scripts/inspect_apk.py "<path_to_game.apk>" --extract-web ./recov
 
 ---
 
-### Phase 6: 汉化与特殊字体字符集偏移排查
-1. **文本抽取与字库裁剪**：
-   - 提取 `data.json` 内涉及文本，生成 `safe_font.txt`。
-   - 对提供的 `zh.ttf` 使用 fontmin 裁剪，体积压缩到 500KB 以内。
-2. **位图字体 `0` / `00` 偏移校正**：
+### Phase 6: 全量文本汉化、美术字替换与字体别名重映射
+1. **中文字库裁剪与别名重映射（零改动 Text 实例）**：
+   - 提取游戏内涉及中文字符，生成 `safe_font.txt`，使用 fontmin 将中文字体裁剪至 500KB 以内，放置于 `fonts/font.ttf`。
+   - **原字体别名重映射**：C3 工程常在几十个 Layout 和成百上千个 Text 实例中使用原生英文字体名（如 `"Rounds Black"`、`"Impact"`）。直接修改 `data.json` 极易损坏格式。
+   - **最优解**：在 `game.js` 启动前通过 `tt.loadFontFace` 注册原英文字体名称映射到中文字体路径：
+     ```javascript
+     tt.loadFontFace({ family: 'Rounds Black', source: 'url("fonts/font.ttf")' });
+     ```
+     无需改动任何 Text 实例配置，小游戏全局自动以中文字体渲染！
+   - **Android Krypton 原生 Canvas 字体拦截**：适配层需劫持 `ctx.font` setter，将 `pt` 自动转为 `px`（`pt * 4 / 3`）并剔除字体名两端引号，防止 Skia 降级为 10px 微型文字。
+2. **三层文本汉化工程路径**：
+   - **层级 1：`data.json` 静态 Text 实例与初始变量**：
+     - 位置：`project[3]`（对象类型定义中的默认文本）与 `project[5]`（各 Layout 场景中摆放的 Text 实例）；
+     - 汉化方式：批量遍历替换，并适当拓宽 Text 框边界防止换行遮挡。
+   - **层级 2：`scripts/c3runtime.js` / `main.js` 动态拼接文本**：
+     - 位置：运行时事件表通过 `SetText` 动作拼接的字符串（如 `"LEVEL " + n` 改为 `"关卡: " + n`）。
+   - **层级 3：`images/sheet0.png` 图集美术字（Texture Atlas Words）**：
+     - 海外游戏常将结算评价（如 `"YES!"`、`"GREAT!"`、`"AWESOME!"`）做成 Sprite 精灵打包在图集中。
+     - **图集 90 度旋转防坑**：C3 Packer 优化图集时常将切片逆时针旋转 90 度存储。美术替换切片时必须严格按相同方向旋转贴入图集，否则在游戏中文字将倾倒 90 度！
+     - **运行时离屏 Canvas 动态字方案**：若不便重修大图集，可在运行时拦截目标 Sprite 的纹理加载，用离屏 Canvas 调用 `ctx.strokeText()` 绘制黑色描边与 `ctx.fillText()` 填充中文，动态生成纹理送入 WebGL。
+3. **文本描边 (Stroke/Outline) 避坑**：
+   - 避免直接在 C3 Text 字符串中使用 BBCode（如 `[outline=black]文字[/outline]`），部分压缩运行时在移动端 WebGL 着色器解析下会导致字体与描边全黑。
+   - 优先使用 C3 Text 对象原生 `Outline` 属性，或在 Canvas 离屏栅格化阶段直接绘制描边。
+4. **位图字体 `0` / `00` 偏移校正**：
    - 若游戏中金币或建造面板出现 `00` 或货币符号消失，排查 `data.json` 中 `Spritefont2` 字符映射表，确保 `£/¥/¢` 特殊符号的图集切片与映射索引完全一致。
 
 ---
@@ -221,8 +257,11 @@ python <skill>/scripts/inspect_apk.py "<path_to_game.apk>" --extract-web ./recov
 3. **抖音开发者工具导入与真机验证**：
    - 打开抖音开发者工具，导入 `my-tt-minigame`。
    - 在“项目构成分析”确认主包体积。
-   - 使用 Android 手机扫码，确认**无黑屏、能进入主玩法、音效正常出声且无中断、存档正常**。
-   - 使用 iPhone 扫码，并在菜单中点击“重新进入小游戏”，确认**屏幕方向锁定正常，无压扁变竖屏**。
+   - 使用 Android / iOS 手机扫码，确认**首次进入无黑屏、主玩法流程顺畅、音频正常出声且无中断、存档正常**。
+   - **重点验证热重启与生命周期**：在真机点击右上角胶囊菜单“重新进入小游戏”，以及切后台 5 秒后再返回：
+     - 确认屏幕保持横屏，不出现被系统压扁成竖屏；
+     - 确认启动加载不卡死，`onDeviceOrientationChange` 无无限自激死循环；
+     - 确认中文字体渲染正常，无 10px 降级，描边清晰无黑块，美术字方向正确。
 
 ---
 

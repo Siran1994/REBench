@@ -3366,6 +3366,99 @@ if (typeof self !== 'undefined') {
 
   setupTouchEvents();
 
+  // Dynamic Screen Resize & Orientation Sync
+  function handleScreenResize(rawW, rawH, source) {
+    if (!rawW || !rawH) return;
+    const w = Math.max(rawW, rawH);
+    const h = Math.min(rawW, rawH);
+    const targetW = Math.round(w * (root.devicePixelRatio || 1));
+    const targetH = Math.round(h * (root.devicePixelRatio || 1));
+
+    // De-bounce: if screen and canvas are already in this exact landscape resolution, do not re-dispatch!
+    if (root.innerWidth === w && root.innerHeight === h && mainCanvas && mainCanvas.width === targetW && mainCanvas.height === targetH) {
+      return;
+    }
+
+    if (rawW < rawH) {
+      if (typeof globalThis !== 'undefined' && typeof globalThis.__forceOrientation === 'function') {
+        globalThis.__forceOrientation('landscape');
+      }
+    }
+
+    console.log('[C3 Adapter] Resizing screen to landscape (' + source + '):', w, 'x', h, 'from raw:', rawW, 'x', rawH);
+    root.innerWidth = w;
+    root.innerHeight = h;
+    root.outerWidth = w;
+    root.outerHeight = h;
+    if (typeof window !== 'undefined') {
+      window.innerWidth = w;
+      window.innerHeight = h;
+      window.outerWidth = w;
+      window.outerHeight = h;
+    }
+    if (typeof globalThis !== 'undefined') {
+      globalThis.innerWidth = w;
+      globalThis.innerHeight = h;
+    }
+    if (typeof self !== 'undefined') {
+      self.innerWidth = w;
+      self.innerHeight = h;
+    }
+    if (mainCanvas) {
+      mainCanvas.style.width = w + 'px';
+      mainCanvas.style.height = h + 'px';
+      mainCanvas.width = targetW;
+      mainCanvas.height = targetH;
+    }
+    try {
+      const evt = { type: 'resize' };
+      root.dispatchEvent(evt);
+      if (typeof window !== 'undefined' && window !== root && window.dispatchEvent) {
+        window.dispatchEvent(evt);
+      }
+    } catch (e) {
+      console.warn('[C3 Adapter] resize dispatch error:', e);
+    }
+  }
+
+  if (typeof tt !== 'undefined') {
+    if (tt.onWindowResize) {
+      tt.onWindowResize((res) => {
+        if (res && res.windowWidth && res.windowHeight) {
+          handleScreenResize(res.windowWidth, res.windowHeight, 'tt.onWindowResize');
+        }
+      });
+    }
+    if (tt.onDeviceOrientationChange) {
+      tt.onDeviceOrientationChange((res) => {
+        console.log('[C3 Adapter] onDeviceOrientationChange event:', res);
+        if (tt.getSystemInfoSync) {
+          try {
+            const info = tt.getSystemInfoSync();
+            if (info && info.windowWidth && info.windowHeight) {
+              handleScreenResize(info.windowWidth, info.windowHeight, 'tt.onDeviceOrientationChange');
+            }
+          } catch (e) {}
+        }
+      });
+    }
+    if (tt.onShow) {
+      tt.onShow(() => {
+        if (tt.getSystemInfoSync) {
+          try {
+            const info = tt.getSystemInfoSync();
+            if (info && info.windowWidth && info.windowHeight) {
+              if (info.windowWidth < info.windowHeight && typeof globalThis !== 'undefined' && typeof globalThis.__forceOrientation === 'function') {
+                globalThis.__forceOrientation('landscape');
+              }
+              handleScreenResize(info.windowWidth, info.windowHeight, 'tt.onShow');
+            }
+          } catch (e) {}
+        }
+      });
+    }
+  }
+
   root.C3Adapter = {
     installed: true,
     getCanvas: getOrCreateMainCanvas

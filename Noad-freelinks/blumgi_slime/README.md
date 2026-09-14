@@ -1,4 +1,4 @@
-# Blumgi Slime - 网页版无广告试玩链接 (No-Ad Free-Link)
+# Blumgi Slime (布鲁姆基史莱姆) - 网页版无广告试玩链接 (No-Ad Free-Link)
 
 本目录为专用于 **CDN 上传** 和 **Web 浏览器直接运行** 的免广告网页版工程。
 

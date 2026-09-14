@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title 启动免广告网页试玩版 - Blumgi Slime
+title 启动免广告网页试玩版 - Blumgi Slime (布鲁姆基史莱姆)
 cd /d "%~dp0"
 
 echo ========================================================
