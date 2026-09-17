@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Perfect Landing: Plane Pilot - 免广告试玩版 (No-Ad Free-Link)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #unity-container {
+      width: 100vw; height: 100vh;
+      display: flex; justify-content: center; align-items: center;
+      position: relative;
+    }
+    #unity-canvas {
+      width: 100%; height: 100%;
+      display: block; outline: none;
+      background: #000;
+    }
+    #loading-cover {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+      display: flex; flex-direction: column;
+      justify-content: center; align-items: center;
+      z-index: 99; color: #fff;
+      transition: opacity 0.4s ease;
+    }
+    .game-logo {
+      font-size: 28px; font-weight: 800; color: #38bdf8;
+      margin-bottom: 8px; letter-spacing: -0.5px;
+      text-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+    }
+    .game-sub {
+      font-size: 13px; color: #94a3b8; margin-bottom: 24px;
+      background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.2);
+      padding: 3px 12px; border-radius: 9999px;
+    }
+    .progress-box {
+      width: 320px; max-width: 80vw; height: 10px;
+      background: #334155; border-radius: 9999px; overflow: hidden;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+    }
+    #progress-fill {
+      width: 0%; height: 100%;
+      background: linear-gradient(90deg, #38bdf8, #0ea5e9);
+      border-radius: 9999px;
+      transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    #status-text {
+      margin-top: 14px; font-size: 13px; color: #94a3b8; font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div id="unity-container">
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+    <div id="loading-cover">
+      <div class="game-logo">✈️ Perfect Landing: Plane Pilot</div>
+      <div class="game-sub">Unity WebGL 2.0 • 免广告脱机试玩版</div>
+      <div class="progress-box"><div id="progress-fill"></div></div>
+      <div id="status-text">初始化 WebAssembly 运行环境...</div>
+    </div>
+  </div>
+
+  <script src="poki-sdk.js"></script>
+  <script src="Build/813700ccfaf64a0a3c57e3aa3166490b.loader.js"></script>
+  <script>
+    const canvas = document.querySelector("#unity-canvas");
+    const progressFill = document.querySelector("#progress-fill");
+    const statusText = document.querySelector("#status-text");
+    const loadingCover = document.querySelector("#loading-cover");
+
+    let bridgeName = null;
+    let readySent = false;
+
+    function notifyReady() {
+      if (window.unityGame && bridgeName) {
+        try {
+          window.unityGame.SendMessage(bridgeName, "ready");
+          readySent = true;
+          console.log("[PokiBridge] Dispatched ready to Unity GameObject: " + bridgeName);
+        } catch (e) {}
+      }
+    }
+
+    window.initPokiBridge = function(name) {
+      bridgeName = name;
+      console.log("[PokiBridge] Registered GameObject Bridge:", name);
+      notifyReady();
+      var count = 0;
+      var timer = setInterval(function() {
+        count++;
+        notifyReady();
+        if (count >= 25) clearInterval(timer);
+      }, 200);
+    };
+
+    window.commercialBreak = function() {
+      if (window.unityGame && bridgeName) {
+        try { window.unityGame.SendMessage(bridgeName, "commercialBreakCompleted"); } catch(e) {}
+      }
+    };
+
+    window.rewardedBreak = function() {
+      if (window.unityGame && bridgeName) {
+        try { window.unityGame.SendMessage(bridgeName, "rewardedBreakCompleted", "true"); } catch(e) {}
+      }
+    };
+
+    // User gesture unlock & ready pulse
+    window.addEventListener("pointerdown", notifyReady);
+    window.addEventListener("keydown", notifyReady);
+
+    createUnityInstance(canvas, {
+      dataUrl: "Build/a22d7abc1ee3cd7b71a65e48bb3d9b2e.data.unityweb",
+      frameworkUrl: "Build/0b14ddffb6d6867f4577189187985cab.framework.js.unityweb",
+      codeUrl: "Build/78675d3236180fa3ceddab8a23a2032e.wasm.unityweb",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "Go Games",
+      productName: "Perfect Landing Plane Pilot",
+      productVersion: "2.2"
+    }, function(progress) {
+      const pct = Math.round(progress * 100);
+      progressFill.style.width = pct + "%";
+      statusText.innerText = "资源加载中 (" + pct + "%)...";
+    }).then(function(instance) {
+      window.unityGame = instance;
+      loadingCover.style.opacity = "0";
+      setTimeout(function() { loadingCover.style.display = "none"; }, 400);
+      notifyReady();
+      setTimeout(notifyReady, 500);
+      setTimeout(notifyReady, 1200);
+      setTimeout(notifyReady, 2500);
+    }).catch(function(err) {
+      statusText.innerText = "启动异常: " + (err.message || err);
+      statusText.style.color = "#f87171";
+    });
+  </script>
+</body>
+</html>

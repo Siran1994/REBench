@@ -1,0 +1,14 @@
+{
+  "deviceOrientation": "landscape",
+  "showStatusBar": false,
+  "subpackages": [
+    {
+      "name": "wasm",
+      "root": "wasm/"
+    },
+    {
+      "name": "data",
+      "root": "data/"
+    }
+  ]
+}

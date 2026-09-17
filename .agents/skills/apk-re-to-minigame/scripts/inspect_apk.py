@@ -1,3 +1,15 @@
+
+def get_unrar_exe():
+    candidates = [
+        Path(__file__).parent.parent.parent.parent.parent / 'tools' / 'UnRAR.exe',
+        Path(r'd:\Desktop\REBench\tools\UnRAR.exe'),
+        Path(r'd:\Desktop\REBench\tools\unrarw64.exe')
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return shutil.which('unrar') or shutil.which('UnRAR')
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -46,7 +58,21 @@ def collect_file_list(source_path):
         file_map['[directory]'] = file_list
         return file_map
 
-    # It's an archive file
+    # Check if it's a RAR archive
+    if source.suffix.lower() == '.rar' or (not zipfile.is_zipfile(source)):
+        unrar = get_unrar_exe()
+        if unrar and os.path.exists(unrar):
+            try:
+                import subprocess
+                res = subprocess.run([unrar, 'lb', str(source)], capture_output=True, text=True, errors='replace')
+                if res.returncode == 0:
+                    names = [line.strip().replace('\\', '/') for line in res.stdout.splitlines() if line.strip()]
+                    file_map['[rar]'] = names
+                    return file_map
+            except Exception as e:
+                pass
+
+    # It's a standard ZIP/APK/XAPK archive file
     with zipfile.ZipFile(source, 'r') as z:
         top_names = z.namelist()
         nested_apks = [n for n in top_names if n.endswith('.apk')]
@@ -73,7 +99,7 @@ def identify_engine(file_map):
     """
     Analyzes file list to identify engine.
     Returns:
-      engine_type: 'unity' | 'construct3' | 'cocos' | 'godot' | 'lime' | 'unreal' | 'unknown'
+      engine_type: 'Unity WebGL' | 'Construct 3' | 'Construct 2' | 'Unity (Native Android)' | 'cocos' | 'godot' | 'lime' | 'unreal' | 'unknown'
       confidence: float (0.0 - 1.0)
       details: dict with matches and explanations
       action: 'TERMINATE' | 'PROCEED' | 'PAUSE'
@@ -86,29 +112,79 @@ def identify_engine(file_map):
 
     details = {
         'unity_evidence': [],
+        'unity_webgl_evidence': [],
         'c3_evidence': [],
+        'c2_evidence': [],
         'other_evidence': [],
         'wrapper': None
     }
 
-    # 1. Unity Check (HIGH PRIORITY GATEKEEPER)
-    unity_patterns = [
+    # 1. Unity WebGL Check (PROCEED - Supported for ByteDance MiniGame porting)
+    unity_webgl_patterns = [
+        r'\.framework\.js(\.unityweb)?$',
+        r'\.loader\.js$',
+        r'\.wasm(\.unityweb)?$',
+        r'\.data(\.unityweb)?$',
+        r'createunityinstance'
+    ]
+    for p in unity_webgl_patterns:
+        matched = [f for f in files_lower if re.search(p, f)]
+        if matched:
+            details['unity_webgl_evidence'].extend(matched[:5])
+
+    has_framework_js = any('.framework.js' in f for f in files_lower)
+    has_loader_js = any('.loader.js' in f for f in files_lower)
+    has_wasm = any('.wasm' in f for f in files_lower)
+
+    if (has_framework_js and has_loader_js) or (has_wasm and has_framework_js):
+        return {
+            'engine': 'Unity WebGL',
+            'status': 'PROCEED',
+            'wrapper': 'Web/WebGL (Wasm+IL2CPP)',
+            'action_message': '【通过门禁】检测到该包体为 Unity WebGL (WebAssembly/IL2CPP) 架构，允许进入 Unity WebGL 抖音小游戏移植管线！',
+            'details': details
+        }
+
+    # 2. Native Android Unity Check (TERMINATE - Native C++ binaries without WebGL runtime)
+    unity_native_patterns = [
         r'assets/bin/data/',
         r'lib/.*/libunity\.so',
         r'lib/.*/libil2cpp\.so',
         r'assets/bin/data/managed/',
         r'unityplayeractivity'
     ]
-    for p in unity_patterns:
+    for p in unity_native_patterns:
         matched = [f for f in files_lower if re.search(p, f)]
         if matched:
             details['unity_evidence'].extend(matched[:5])
 
     if details['unity_evidence']:
         return {
-            'engine': 'Unity',
+            'engine': 'Unity (Native Android)',
             'status': 'TERMINATE',
-            'action_message': '【终止流程】检测到该 APK 为 Unity 引擎开发，按照流程规范立即终止逆向移植流程！请勿盲目反编译移植。',
+            'action_message': '【终止流程】检测到该 APK 为 Unity 原生 Android 引擎开发（包含 libunity.so/libil2cpp.so，非 WebGL），无法直接通过 WebGL 方案移植小游戏！请勿盲目反编译移植。',
+            'details': details
+        }
+
+    # 3. Construct 2 Check (PROCEED - Supported for ByteDance MiniGame porting)
+    c2_patterns = [
+        r'c2runtime\.js',
+        r'jquery-2\.1\.1\.min\.js',
+        r'spine_webgl\.js'
+    ]
+    for p in c2_patterns:
+        matched = [f for f in files_lower if re.search(p, f)]
+        if matched:
+            details['c2_evidence'].extend(matched[:5])
+
+    has_c2runtime = any('c2runtime.js' in f for f in files_lower)
+    has_c2_data = any(f.endswith('data.js') for f in files_lower)
+    if has_c2runtime or (has_c2_data and any('jquery' in f for f in files_lower)):
+        return {
+            'engine': 'Construct 2',
+            'status': 'PROCEED',
+            'wrapper': 'Web/HTML5 (DOM+jQuery)',
+            'action_message': '【通过门禁】检测到该包体为 Construct 2 (C2) 游戏工程，允许进入 Construct 2 抖音小游戏移植管线！',
             'details': details
         }
 
@@ -456,19 +532,55 @@ def main():
         'engine_result': engine_res
     }
 
-    if engine_res['engine'] == 'Unity':
-        print("[inspect_apk] CRITICAL: Unity engine detected. Aborting workflow per instructions.")
+    if engine_res['status'] == 'TERMINATE':
+        print(f"[inspect_apk] CRITICAL: {engine_res['engine']} detected. Aborting workflow per instructions.")
         if args.output:
             with open(args.output, 'w', encoding='utf-8') as f:
                 json.dump(report, f, ensure_ascii=False, indent=2)
-        sys.exit(2)  # Return code 2 indicates Unity abort
+        sys.exit(2)
 
-    if engine_res['engine'] != 'Construct 3':
-        print(f"[inspect_apk] WARNING: Non-Construct-3 engine ({engine_res['engine']}) detected. Pausing.")
+    if engine_res['status'] == 'PAUSE':
+        print(f"[inspect_apk] WARNING: Unverified engine ({engine_res['engine']}) detected. Pausing for confirmation.")
         if args.output:
             with open(args.output, 'w', encoding='utf-8') as f:
                 json.dump(report, f, ensure_ascii=False, indent=2)
-        sys.exit(3)  # Return code 3 indicates other non-C3 engine
+        sys.exit(3)
+
+    # Engine is supported (Construct 3, Construct 2, Unity WebGL)
+    if engine_res['engine'] == 'Unity WebGL':
+        print("[inspect_apk] Engine: Unity WebGL detected. Auditing WebGL assets...")
+        audit = {
+            'engine': 'Unity WebGL',
+            'framework': any('.framework.js' in f.lower() for f in sum(file_map.values(), [])),
+            'loader': any('.loader.js' in f.lower() for f in sum(file_map.values(), [])),
+            'wasm': [f for f in sum(file_map.values(), []) if '.wasm' in f.lower()][:3],
+            'data': [f for f in sum(file_map.values(), []) if '.data' in f.lower() or f.lower().endswith('.bin')][:3]
+        }
+        report['audit'] = audit
+        print(f"Unity WebAssembly Binary : {audit['wasm']}")
+        print(f"Unity Asset Data Package : {audit['data']}")
+        if args.output:
+            with open(args.output, 'w', encoding='utf-8') as f:
+                json.dump(report, f, ensure_ascii=False, indent=2)
+        sys.exit(0)
+
+    if engine_res['engine'] == 'Construct 2':
+        print("[inspect_apk] Engine: Construct 2 detected. Auditing C2 assets...")
+        all_f = sum(file_map.values(), [])
+        audit = {
+            'engine': 'Construct 2',
+            'has_c2runtime': any('c2runtime.js' in f.lower() for f in all_f),
+            'has_data_js': any('data.js' in f.lower() for f in all_f),
+            'has_jquery': any('jquery' in f.lower() for f in all_f),
+            'has_spine': any('spine' in f.lower() for f in all_f),
+            'has_localisation': any('localis' in f.lower() or 'localiz' in f.lower() for f in all_f)
+        }
+        report['audit'] = audit
+        print(f"Construct 2 Runtime: {audit['has_c2runtime']}, Data: {audit['has_data_js']}, Spine: {audit['has_spine']}")
+        if args.output:
+            with open(args.output, 'w', encoding='utf-8') as f:
+                json.dump(report, f, ensure_ascii=False, indent=2)
+        sys.exit(0)
 
     # Construct 3 path: Proceed to extraction and audit
     print("[inspect_apk] Proceeding with Construct 3 extraction and project audit...")
