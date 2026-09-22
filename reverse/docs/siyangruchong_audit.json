@@ -1,0 +1,33 @@
+{
+  "source": "D:\\Desktop\\REBench\\apk\\siyangruchong_package.rar",
+  "engine_result": {
+    "engine": "Unity WebGL",
+    "status": "PROCEED",
+    "wrapper": "Web/WebGL (Wasm+IL2CPP)",
+    "action_message": "【通过门禁】检测到该包体为 Unity WebGL (WebAssembly/IL2CPP) 架构，允许进入 Unity WebGL 抖音小游戏移植管线！",
+    "details": {
+      "unity_evidence": [],
+      "unity_webgl_evidence": [
+        "siyangruchong_package/build/siyangruchong.framework.js.unityweb",
+        "siyangruchong_package/build/siyangruchong.loader.js",
+        "siyangruchong_package/build/siyangruchong.wasm.unityweb",
+        "siyangruchong_package/build/siyangruchong.data.unityweb"
+      ],
+      "c3_evidence": [],
+      "c2_evidence": [],
+      "other_evidence": [],
+      "wrapper": null
+    }
+  },
+  "audit": {
+    "engine": "Unity WebGL",
+    "framework": true,
+    "loader": true,
+    "wasm": [
+      "siyangruchong_package/Build/siyangruchong.wasm.unityweb"
+    ],
+    "data": [
+      "siyangruchong_package/Build/siyangruchong.data.unityweb"
+    ]
+  }
+}

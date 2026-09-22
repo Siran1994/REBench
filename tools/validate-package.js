@@ -12,6 +12,8 @@ const fs = require('fs');
 const path = require('path');
 
 const MAX_MAIN_PACKAGE_BYTES = 4 * 1024 * 1024; // 4.0 MB
+const MAX_SUBPACKAGE_BYTES = 20 * 1024 * 1024; // 20.0 MB
+const MAX_TOTAL_PACKAGE_BYTES = 30 * 1024 * 1024; // 30.0 MB
 
 function getDirectorySizeBytes(dir, excludePaths = []) {
   let total = 0;
@@ -48,16 +50,21 @@ function validateProject(projectDir) {
   // 1. Check game.json
   const gameJsonPath = path.join(root, 'game.json');
   if (!fs.existsSync(gameJsonPath)) {
-    errors.push(`Missing 'game.json' in project root.`);
+    errors.push(`Missing 'game.json' at root.`);
     return { success: false, errors, warnings };
   }
 
   let gameConfig = {};
   try {
     gameConfig = JSON.parse(fs.readFileSync(gameJsonPath, 'utf-8'));
-  } catch (err) {
-    errors.push(`Invalid JSON format in game.json: ${err.message}`);
+  } catch (e) {
+    errors.push(`Malformed 'game.json': ${e.message}`);
     return { success: false, errors, warnings };
+  }
+
+  // Check subPackages field naming convention
+  if (gameConfig.subpackages && !gameConfig.subPackages) {
+    warnings.push(`'game.json' uses lowercase 'subpackages'. ByteDance developer tools expect camelCase 'subPackages'!`);
   }
 
   // 2. Check game.js entry
@@ -66,9 +73,10 @@ function validateProject(projectDir) {
     errors.push(`Missing main game entry 'game.js'.`);
   }
 
-  // 3. Check Subpackages & ensure each has game.js
+  // 3. Check Subpackages & ensure each has game.js and <= 20MB
   const subpackages = gameConfig.subPackages || gameConfig.subpackages || [];
   const subpackageDirs = [];
+  let totalSubpackagesBytes = 0;
 
   console.log(`[validate-package] Subpackages configured in game.json: ${subpackages.length}`);
   for (const sub of subpackages) {
@@ -87,6 +95,14 @@ function validateProject(projectDir) {
     } else {
       console.log(`  ✓ Subpackage '${subRoot}' entry verified: game.js`);
     }
+
+    const subBytes = getDirectorySizeBytes(subPath);
+    totalSubpackagesBytes += subBytes;
+    const subMB = (subBytes / (1024 * 1024)).toFixed(3);
+    console.log(`    Size: ${subMB} MB (${subBytes} bytes)`);
+    if (subBytes > MAX_SUBPACKAGE_BYTES) {
+      errors.push(`Subpackage '${subRoot}' exceeds ByteDance 20.0 MB limit! Current size: ${subMB} MB.`);
+    }
   }
 
   // 4. Check Main Package Size
@@ -100,12 +116,31 @@ function validateProject(projectDir) {
     console.log(`  ✓ Main package is within 4.0 MB limit (Remaining allowance: ${(4 - mainPackageMB).toFixed(3)} MB)`);
   }
 
-  // 5. Check Adapter & Polyfills
-  const adapterPath = path.join(root, 'adapter', 'tt-c3-adapter.js');
-  if (!fs.existsSync(adapterPath)) {
-    warnings.push(`Missing 'adapter/tt-c3-adapter.js'. Ensure custom adapter is loaded.`);
+  // 4b. Check Total Package Size (Main + all Subpackages <= 30MB)
+  const totalPackageBytes = mainPackageBytes + totalSubpackagesBytes;
+  const totalPackageMB = (totalPackageBytes / (1024 * 1024)).toFixed(3);
+  console.log(`\n[validate-package] Total Package Size: ${totalPackageMB} MB (${totalPackageBytes} bytes)`);
+  if (totalPackageBytes > MAX_TOTAL_PACKAGE_BYTES) {
+    errors.push(`Total package exceeds ByteDance 30.0 MB limit! Current size is ${totalPackageMB} MB (${totalPackageBytes} bytes). ByteDance will reject phone debug/upload!`);
   } else {
-    const adapterCode = fs.readFileSync(adapterPath, 'utf-8');
+    console.log(`  ✓ Total package is within 30.0 MB limit (Remaining allowance: ${(30 - totalPackageMB).toFixed(3)} MB)`);
+  }
+
+  // 5. Check Adapter & Polyfills
+  const c3Adapter = path.join(root, 'adapter', 'tt-c3-adapter.js');
+  const unityAdapter = path.join(root, 'adapter', 'tt-unity-adapter.js');
+  const c2Adapter = path.join(root, 'adapter', 'tt-c2-adapter.js');
+  const impactAdapter = path.join(root, 'adapter', 'tt-impact-adapter.js');
+
+  if (fs.existsSync(unityAdapter)) {
+    console.log(`\n[validate-package] Detected Unity 3D WebGL adapter: 'adapter/tt-unity-adapter.js' ✓`);
+  } else if (fs.existsSync(c2Adapter)) {
+    console.log(`\n[validate-package] Detected Construct 2 adapter: 'adapter/tt-c2-adapter.js' ✓`);
+  } else if (fs.existsSync(impactAdapter)) {
+    console.log(`\n[validate-package] Detected ImpactJS (HTML5 Canvas 2D) adapter: 'adapter/tt-impact-adapter.js' ✓`);
+  } else if (fs.existsSync(c3Adapter)) {
+    console.log(`\n[validate-package] Detected Construct 3 adapter: 'adapter/tt-c3-adapter.js' ✓`);
+    const adapterCode = fs.readFileSync(c3Adapter, 'utf-8');
     if (!adapterCode.includes('visualViewport')) {
       warnings.push(`'tt-c3-adapter.js' does not contain 'visualViewport' polyfill. Android may experience black screen!`);
     }
@@ -115,6 +150,8 @@ function validateProject(projectDir) {
     if (!adapterCode.includes('SafeAudioContext') && !adapterCode.includes('tt.getAudioContext')) {
       warnings.push(`'tt-c3-adapter.js' may lack 'tt.getAudioContext()' bridge. Audio playback could fail on real devices!`);
     }
+  } else {
+    warnings.push(`Missing engine adapter in 'adapter/'. Ensure custom adapter is loaded.`);
   }
 
   // 6. Check Syntax & Reserved Word Conflicts (SWC Parser & GLSL ES 1.00 issues)

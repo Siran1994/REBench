@@ -125,3 +125,54 @@ node .agents/skills/apk-re-to-minigame/scripts/export-noad-freelink.js \
 3. 修正 `index.html` 与 `scripts/main.js`（切换 `exportType: "html5"`，剔除 native `cordova.js`）。
 4. 生成独立端口的 `serve.py` 与 `启动网页试玩.bat`。
 5. 自动扫描 `Noad-freelinks/` 下的所有项目，重构 `Noad-freelinks/index.html` 门户索引。
+
+---
+
+## 5. Unity WebGL 专属免广告 Web 试玩包 SOP (无源码无损复用)
+
+针对 Unity WebGL 商业包，导出免广告试玩包时采取**“无源码无损逆向提取 + 纯离线免广告微内核”**路线：
+
+### 5.1 逆向解包复用小游戏汉化资产
+直接解压小游戏已完成汉化与字库注入的数据包（如 `tt-minigame/data_pkg/PCIBuild.data.br`），使用 Python 执行 Brotli 解包：
+```python
+import brotli
+with open('tt-minigame/data_pkg/PCIBuild.data.br', 'rb') as f:
+    decompressed = brotli.decompress(f.read())
+with open('Noad-freelinks/unity_game/Build/PCIBuild.data', 'wb') as f:
+    f.write(decompressed)
+```
+直接继承已调优的 TextMeshPro 点阵字库（ArkPixel）、全场景汉化文本与 IL2CPP `global-metadata.dat` 动态字面量，零重复劳动！
+
+### 5.2 零延迟免广告仿真微内核 (`crazygames-sdk-v3.js`)
+在 Web 环境中拦截广告调用，45ms 延迟内必定 resolve Promise 并触发毛玻璃 HUD 绿色 Toast：
+```javascript
+ad: {
+  isAdPlaying: false,
+  hasAdblock: () => Promise.resolve(false),
+  prefetchAd: () => {},
+  requestAd: function(type, callbacks) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ad-reward-granted', {
+        detail: { type, message: '🎁 免广告特权生效：已自动跳过广告，奖励已即刻发放！' }
+      }));
+    }
+    if (callbacks && callbacks.adStarted) { try { callbacks.adStarted(); } catch(e){} }
+    return new Promise(function(resolve) {
+      setTimeout(function() {
+        if (callbacks && callbacks.adFinished) { try { callbacks.adFinished(); } catch(e){} }
+        resolve(); // 必定 resolve，防止 Unity 链式 .catch 抛错打崩主循环
+      }, 45);
+    });
+  }
+}
+```
+
+### 5.3 SiteLock 白名单永久穿透
+在 Web 版的 `framework.js` 中拦截 `_JS_SystemInfo_GetDocumentURL`，恒定返回平台合法生产 URL（如 `https://www.crazygames.com/game/your-game`），消除本地/内网运行触发的 SiteLock Code 3 时间冻结（`Time.timeScale = 0`）。
+并在 `doInit` 入口第一时间同步发送 `SendMessage("CrazySDKSingleton", "JSLibCallback_Init")`，令 C# 端 `IsInitialized` 立即就绪。
+
+### 5.4 高性能本地 WebGL 服务器 (`run_server.py`)
+自动探测从 8092 开始的空闲端口，回显局域网 IP（支持同一 Wi-Fi 下手机浏览器秒开），并强制返回：
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Cross-Origin-Embedder-Policy: require-corp`
+- 正确的 `.wasm` (`application/wasm`) 与 `.data` MIME 类型。

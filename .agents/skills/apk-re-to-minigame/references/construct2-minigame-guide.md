@@ -165,6 +165,123 @@ if (typeof module !== 'undefined' && module.exports) module.exports = spine;
 
 ---
 
+### 4.1 Spine 角色透明、消失或动画不播放：运行时取证闭环
+
+#### 先判断“看到的是什么”
+
+角色位置上出现一个很淡的静态人影，不等于 Spine 被错误地绘制成半透明。C2 项目常在骨骼角色下方放置低透明度占位精灵；当 Spine 资产没有加载时，占位精灵仍可见，于是表象像 Alpha 错误。必须先证明骨骼资产已加载并完成过绘制，再检查混合模式。
+
+| 运行时证据 | 优先结论 |
+|---|---|
+| `loaded=false`、`textures=[]`、`completedDraws=0` | 资产链路失败；不要先改 Shader、Alpha 或动画时钟 |
+| `pending/toLoad=-1` | 同一张图片的完成回调被触发两次 |
+| `pending=0`，但 `errors` 含 `ownerDocument ... only a getter` | DOM 适配层写入了原生只读属性，图集解析在发现纹理前已中断 |
+| `shaderReady=true`、`drawAttempts>0`、`completedDraws=0` | Shader 就绪不代表角色可画；继续检查 skeleton/atlas/texture 加载 |
+| `loaded=true`、纹理有尺寸、`completedDraws` 增长，但画面颜色异常 | 此时才检查 PMA、blendFunc、tint 与 opacity |
+| `loaded=true` 且持续绘制，但 `trackTime` 不增长 | 才进入 tick、timescale、动画状态机排查 |
+
+#### 必须记录的诊断字段
+
+在真实抖音模拟器和真机中，对每个 Spine 实例输出：骨骼名、`loaded`、AssetManager 的 `pending/toLoad` 与 `errors`、纹理键/路径/宽高、纹理与渲染器是否同一 WebGL context、`visible`、`opacity`、`shaderReady`、`drawAttempts`、`completedDraws`、动画名、`trackTime` 和最后一次渲染异常。构建日志必须带递增版本号，避免把旧包日志当成新修复结果。
+
+本次故障的真实因果链是：
+
+```text
+document.createElement('img')
+  -> 适配器写入原生 getter-only ownerDocument/nodeType
+  -> 严格模式抛错，TextureAtlas 首轮纹理发现中断
+  -> textures=[]，skeleton loaded=false
+  -> Spine 从未完成绘制，底层低透明占位精灵露出
+  -> 表面看似“角色透明 + 动画不播放”
+```
+
+#### Image/DOM 适配器的硬约束
+
+1. **每个 `src` 只能结算一次**：使用 `settled + generation` 状态；重新赋值 `src` 时重置 `complete/loaded/error/settled`。迟到回调必须校验 generation。
+2. **原生事件只接一条通道**：若已通过原生 `onload/onerror` setter 注册，就不要再用原生 `addEventListener` 注册相同内部回调。否则 Spine `AssetManager.toLoad` 可能从 `1` 连减到 `-1`，而 `isLoadingComplete()` 只接受 `=== 0`。
+3. **禁止超时伪成功**：不能在若干秒后主动调用 load 回调。未解码、宽高为 0 的图片若被当作成功，会把坏纹理送入 WebGL 并掩盖真正错误。超时只允许记录诊断或触发显式失败/重试。
+4. **失败重试必须是新一代请求**：fallback 改写 `src` 时必须先重置结算状态；旧请求的迟到事件不得结算新请求。
+5. **原生对象属性默认不可写**：`ownerDocument`、`nodeType`、`tagName` 等只在缺失时补充，并使用 `try/catch` 隔离；不得无条件覆盖宿主值。
+
+```javascript
+try {
+  if (!img.ownerDocument) img.ownerDocument = root.document || null;
+} catch (e) {}
+try {
+  if (typeof img.nodeType === 'undefined') img.nodeType = 1;
+} catch (e) {}
+```
+
+#### 验证顺序与完成门槛
+
+1. 先取得失败设备的运行时诊断，沿最早的资产错误定位，禁止仅凭截图猜测。
+2. 为图片包装器做契约测试，至少覆盖：宿主同时触发 property handler 与 event listener、只有自身 `onload` 属性、超时未解码、error 后换 `src` 重试、复用 Image、getter-only `ownerDocument/nodeType`。
+3. 测试必须走真实的 `document.createElement('img')`、真实 Spine AssetManager 和至少一份真实 atlas；只测孤立 WebGL 绘制会漏掉 DOM 工厂错误。
+4. 用真实 WebGL 做像素与动画验证：非透明像素数大于 0、间隔帧 checksum 不同、`trackTime` 增长、`gl.getError() === 0`。
+5. 最后在抖音模拟器和真机复验。只有日志同时满足 `loaded=true`、纹理存在且尺寸非 0、`completedDraws` 持续增长、`trackTime` 增长、atlas errors 为空，才可以宣布修复。
+
+#### 常见误判
+
+- `UNPACK_PREMULTIPLY_ALPHA_WEBGL` 主要影响 RGB 边缘与混合结果，不能解释 `loaded=false`、`textures=[]` 或 atlas 解析异常。
+- 把动画 `update()` 从 draw 移到 tick，不能让未加载的 skeleton 开始播放。
+- 静态审查、mock Shader 或独立 WebGL demo 通过，只能证明局部代码可运行，不能证明小游戏的 Image/DOM/atlas 全链路正确。
+
+---
+
+### 5. 音频系统适配与 HTML5 Audio 模式锁定（关键避坑）
+
+#### 现象
+游戏运行时完全没有声音，或控制台大量报 `media/*.ogg` 404 错误，或背景音乐与音效无任何响应但无明显报错。
+
+#### 根因剖析
+Construct 2 音频引擎（`cr.plugins_.Audio`）在抖音小游戏环境中有三个隐蔽且致命的死穴：
+1. **WebAudio 诱骗陷阱**：C2 初始化时优先检测 `window.AudioContext`。适配层若暴露了 dummy `SafeAudioContext`，C2 会判定进入 `api = API_WEBAUDIO` 模式。在该模式下，C2 会使用 XHR 获取音频 ArrayBuffer 并调用 `ctx.decodeAudioData`。由于小游戏 WebAudio 无法解码 AAC 编码的 `.m4a` 且 dummy AudioContext 无法发声，导致音效彻底静默。
+2. **ES6 继承中的自身属性方法遮蔽（Method Shadowing）**：`MiniAudio extends MiniElement`。若基类 `MiniElement` 构造函数在 `this` 上直接绑定了空桩 `this.play = function() { ... }`、`this.canPlayType = function() { ... }`，这些自身属性会**强行遮蔽** `MiniAudio.prototype.play()` 等封装了 `tt.createInnerAudioContext()` 的真实原生桥接方法，导致音频调用完全空跑。
+3. **`canPlayType` 误报导致 .ogg 404**：基类 `canPlayType` 误对 `ogg/vorbis` 返回 `'maybe'`，导致 C2 判定宿主支持 OGG 并计算出 `useOgg = true`，从而发起全部指向 `media/*.ogg` 的网络请求。而在 4MB 主包瘦身阶段，通常已将 `.ogg` 全部删除（仅保留 `.m4a`），造成全量 404。
+
+#### 解决方案（三位一体闭环）
+1. **锁定 `c2runtime.js` 模式**：
+   定位到 `cr.plugins_.Audio.prototype.onCreate`（约 18450~18510 行），在检测逻辑开头插入小游戏环境判断，强制锁定 `API_HTML5` 并关闭 `useOgg`：
+   ```javascript
+   // 小游戏环境强制锁定 HTML5 Audio 模式，由 MiniAudio 接管 tt.createInnerAudioContext
+   if (typeof tt !== "undefined") {
+     this.api = API_HTML5;
+     this.useOgg = false;
+     return;
+   }
+   ```
+2. **适配层原型方法保护与自动纠偏**：
+   - 在 `templates/tt-c2-adapter.template.js` 的 `MiniElement` 构造函数中增加防护：
+     ```javascript
+     if (this.tagName !== 'AUDIO') {
+       // 仅非 AUDIO 元素绑定 dummy 媒体属性，避免遮蔽 MiniAudio 原型方法
+       this.play = ...;
+       this.canPlayType = ...;
+     }
+     ```
+   - 在 `MiniAudio` 原型上的 `set src(val)` 中，自动将历史遗留的 `.ogg` 后缀纠正为 `.m4a`：
+     ```javascript
+     clean = clean.replace(/\.ogg$/i, '.m4a');
+     ```
+   - 保证 `canPlayType` 对 `m4a/mp3/aac/wav` 返回 `'maybe'`，对 `ogg/webm` 严格返回 `''`。
+3. **主入口全局手势音频激活**：
+   在 `game.js` 中监听首次触摸手势，解除移动端静音策略：
+   ```javascript
+   const unlockAudio = () => {
+     try {
+       const ctx = tt.createInnerAudioContext();
+       ctx.src = 'media/silence.m4a'; // 或工程中已有短音效
+       ctx.play();
+       ctx.stop();
+       ctx.destroy();
+     } catch (e) {}
+     tt.offTouchStart(unlockAudio);
+   };
+   tt.onTouchStart(unlockAudio);
+   ```
+
+---
+
 ## 三、Construct 2 主包 4MB 瘦身实战技巧
 
 1. **剔除双份音频冗余**：

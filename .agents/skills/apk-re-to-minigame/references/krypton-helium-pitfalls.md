@@ -449,4 +449,44 @@ Android Krypton 在 strict 模式下报致命错误：
    - 在 `adapter/tt-c3-adapter.js` 的 `fetch` 垫片中拦截 `noise.wasm` 与 `opus.wasm.wasm`，直接返回包含内联 Buffer 的 Mock Response；
    - 在 `scripts/opus.wasm.js` 的 `getBinaryPromise` 中增加对 `__opusWasmBuffer` 与 `embedded-wasm.js` 的直接读取，彻底杜绝 `abort("not yet received opus blob")`。
 
+---
+
+## 11. 基类实例属性覆盖子类原型方法（Method Shadowing）与音频静默杀手
+
+### 现象
+游戏在真机或模拟器运行完全无报错，控制台输出看似正常，但无论如何触发音效、播放 BGM 均**完全静音**。排查发现 `audio.play()` 已被调用，但底层的 `tt.createInnerAudioContext().play()` 却从未被执行。
+
+### 根因
+JavaScript ES6 类的继承调用链与原型链查找规则：
+- 子类 `class MiniAudio extends MiniElement` 在类声明体中定义的函数，属于**原型方法**（挂载在 `MiniAudio.prototype` 上，如 `MiniAudio.prototype.play()`、`MiniAudio.prototype.pause()`、`MiniAudio.prototype.canPlayType()`）。
+- 子类构造函数第一行必须调用 `super('AUDIO')`。
+- 若基类 `MiniElement` 的构造函数中对多媒体元素定义了伪实现：
+  ```javascript
+  this.play = function() {
+    this.paused = false;
+    setTimeout(() => { this.ended = true; }, 100);
+    return Promise.resolve();
+  };
+  this.canPlayType = function(mime) { ... };
+  ```
+- **根据原型链查找规则**：实例自身属性（Own Property）优先级绝对高于原型链方法（Prototype Property）。
+- `MiniElement` 构造函数直接将这些 dummy 函数绑定在当前的 `MiniAudio` 实例对象自身上，**彻底遮蔽（Shadowed）**了子类原型上真正桥接 `tt.createInnerAudioContext()` 的原生播放逻辑！
+
+### 解法
+1. **基类构造函数标签鉴别守卫**：
+   在 `MiniElement` 构造函数中，对所有媒体/播放类空桩方法增加标签排他判断：
+   ```javascript
+   if (this.tagName !== 'AUDIO') {
+     // 仅对非 AUDIO 标签（如 VIDEO 等占位元素）绑定 dummy 媒体接口
+     this.play = function() { ... };
+     this.pause = function() { ... };
+     this.load = function() { ... };
+     this.canPlayType = function(mime) { ... };
+   }
+   ```
+2. **子类原型方法与属性定义规范**：
+   - 子类特有的业务行为和平台原生桥接，必须通过类方法定义在原型上；
+   - 严禁基类在 `constructor` 中以 `this.method = ...` 形式盲目向所有 DOM 实例附加与子类同名的方法，避免子类原型方法被无声吞噬。
+
+
 

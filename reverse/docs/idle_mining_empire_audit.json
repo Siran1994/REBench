@@ -1,0 +1,33 @@
+{
+  "source": "D:\\Desktop\\REBench\\apk\\idle_mining_empire_package.rar",
+  "engine_result": {
+    "engine": "ImpactJS (HTML5 Canvas 2D)",
+    "status": "PROCEED",
+    "wrapper": "Web/HTML5 (Canvas 2D + Howler)",
+    "action_message": "【通过门禁】检测到该包体为 ImpactJS (HTML5 Canvas 2D) 游戏工程，允许进入 ImpactJS 抖音小游戏移植管线！",
+    "details": {
+      "unity_evidence": [],
+      "unity_webgl_evidence": [],
+      "c3_evidence": [],
+      "c2_evidence": [],
+      "other_evidence": [
+        "idle_mining_empire_package/game.js",
+        "idle_mining_empire_package/media/audio/addmoney.mp3",
+        "idle_mining_empire_package/media/audio/addmoney.ogg",
+        "idle_mining_empire_package/media/audio/bgm.mp3",
+        "idle_mining_empire_package/media/audio/bgm.ogg"
+      ],
+      "wrapper": "Web/HTML5"
+    }
+  },
+  "audit": {
+    "engine": "ImpactJS (HTML5 Canvas 2D)",
+    "has_game_js": true,
+    "has_poki_sdk": true,
+    "has_textures": true,
+    "audio_mp3_count": 14,
+    "audio_ogg_count": 14,
+    "png_count": 103,
+    "total_files": 166
+  }
+}

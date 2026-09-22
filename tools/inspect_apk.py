@@ -226,7 +226,25 @@ def identify_engine(file_map):
             'details': details
         }
 
-    # 3. Other engines
+    # 4. ImpactJS / HTML5 Canvas 2D Check (PROCEED - Supported for ByteDance MiniGame porting)
+    impact_patterns = [
+        r'game\.js$',
+        r'media/graphics/',
+        r'media/audio/',
+        r'poki-sdk\.js'
+    ]
+    matched_impact = [f for f in files_lower if any(re.search(p, f) for p in impact_patterns)]
+    if any(f.endswith('game.js') for f in files_lower) and (any('media/graphics/' in f for f in files_lower) or any('poki-sdk.js' in f for f in files_lower)):
+        details['other_evidence'].extend(matched_impact[:5])
+        return {
+            'engine': 'ImpactJS (HTML5 Canvas 2D)',
+            'status': 'PROCEED',
+            'wrapper': 'Web/HTML5 (Canvas 2D + Howler)',
+            'action_message': '【通过门禁】检测到该包体为 ImpactJS (HTML5 Canvas 2D) 游戏工程，允许进入 ImpactJS 抖音小游戏移植管线！',
+            'details': details
+        }
+
+    # 5. Other engines
     if any('liblime.so' in f or 'libapplicationmain.so' in f for f in files_lower):
         return {
             'engine': 'Haxe/Lime/OpenFL',
@@ -580,6 +598,27 @@ def main():
         if args.output:
             with open(args.output, 'w', encoding='utf-8') as f:
                 json.dump(report, f, ensure_ascii=False, indent=2)
+        sys.exit(0)
+
+    if engine_res['engine'] == 'ImpactJS (HTML5 Canvas 2D)':
+        print("[inspect_apk] Engine: ImpactJS (HTML5 Canvas 2D) detected. Auditing ImpactJS assets...")
+        all_f = sum(file_map.values(), [])
+        audit = {
+            'engine': 'ImpactJS (HTML5 Canvas 2D)',
+            'has_game_js': any(f.lower().endswith('game.js') for f in all_f),
+            'has_poki_sdk': any('poki-sdk' in f.lower() for f in all_f),
+            'has_textures': any('texture-' in f.lower() for f in all_f),
+            'audio_mp3_count': len([f for f in all_f if f.lower().endswith('.mp3')]),
+            'audio_ogg_count': len([f for f in all_f if f.lower().endswith('.ogg')]),
+            'png_count': len([f for f in all_f if f.lower().endswith('.png')]),
+            'total_files': len(all_f)
+        }
+        report['audit'] = audit
+        print(f"ImpactJS Game: game.js={audit['has_game_js']}, PokiSDK={audit['has_poki_sdk']}, MP3s={audit['audio_mp3_count']}, PNGs={audit['png_count']}")
+        if args.output:
+            with open(args.output, 'w', encoding='utf-8') as f:
+                json.dump(report, f, ensure_ascii=False, indent=2)
+            print(f"[inspect_apk] Full audit written to: {args.output}")
         sys.exit(0)
 
     # Construct 3 path: Proceed to extraction and audit

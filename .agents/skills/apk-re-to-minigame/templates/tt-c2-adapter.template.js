@@ -796,10 +796,13 @@ if (typeof self !== 'undefined') {
       const listeners = new Map();
       let rawOnload = null;
       let rawOnerror = null;
+      let settled = false;
+      let loadGeneration = 0;
 
       let isInvokingOnload = false;
       function onImageLoaded(e) {
-        if (isInvokingOnload) return;
+        if (settled || isInvokingOnload) return;
+        settled = true;
         isInvokingOnload = true;
         _complete = true;
         _loaded = true;
@@ -819,10 +822,11 @@ if (typeof self !== 'undefined') {
 
       let isInvokingOnerror = false;
       function onImageErrored(e) {
-        if (isInvokingOnerror) return;
+        if (settled || isInvokingOnerror) return;
+        settled = true;
         isInvokingOnerror = true;
         _complete = true;
-        _loaded = true;
+        _loaded = false;
         img.c2error = true;
         const evt = e || { type: 'error', target: img };
         if (typeof rawOnerror === 'function') {
@@ -839,20 +843,21 @@ if (typeof self !== 'undefined') {
 
       const protoOnloadDesc = findProtoDesc(img, 'onload');
       const protoOnerrorDesc = findProtoDesc(img, 'onerror');
-      if (protoOnloadDesc && protoOnloadDesc.set) {
-        try { protoOnloadDesc.set.call(img, onImageLoaded); } catch (e) {}
-      } else {
-        try { img.onload = onImageLoaded; } catch (e) {}
-      }
-
-      if (protoOnerrorDesc && protoOnerrorDesc.set) {
-        try { protoOnerrorDesc.set.call(img, onImageErrored); } catch (e) {}
-      } else {
-        try { img.onerror = onImageErrored; } catch (e) {}
-      }
-
       const protoAddEvent = findProtoDesc(img, 'addEventListener');
-      if (protoAddEvent && typeof protoAddEvent.value === 'function') {
+      const nativeEventsUseOwnProperties = Object.prototype.hasOwnProperty.call(img, 'onload') &&
+        protoOnloadDesc && !protoOnloadDesc.get && !protoOnloadDesc.set;
+      let hookedByProperties = false;
+      try {
+        if (protoOnloadDesc && protoOnloadDesc.set) protoOnloadDesc.set.call(img, onImageLoaded);
+        else img.onload = onImageLoaded;
+        if (protoOnerrorDesc && protoOnerrorDesc.set) protoOnerrorDesc.set.call(img, onImageErrored);
+        else img.onerror = onImageErrored;
+        hookedByProperties = true;
+      } catch (e) {}
+      // A native Image can expose both onload setters and addEventListener for
+      // the same event. Register through exactly one channel or Spine's
+      // AssetManager counter is decremented twice and becomes permanently -1.
+      if (!hookedByProperties && protoAddEvent && typeof protoAddEvent.value === 'function') {
         try {
           protoAddEvent.value.call(img, 'load', onImageLoaded);
           protoAddEvent.value.call(img, 'error', onImageErrored);
@@ -864,9 +869,15 @@ if (typeof self !== 'undefined') {
         if (!listeners.has(type)) listeners.set(type, new Set());
         listeners.get(type).add(fn);
         if (type === 'load' && _complete && !img.c2error) {
-          setTimeout(() => fn.call(img, { type: 'load', target: img }), 0);
+          const generation = loadGeneration;
+          setTimeout(() => {
+            if (generation === loadGeneration && settled && !img.c2error) fn.call(img, { type: 'load', target: img });
+          }, 0);
         } else if (type === 'error' && _complete && img.c2error) {
-          setTimeout(() => fn.call(img, { type: 'error', target: img }), 0);
+          const generation = loadGeneration;
+          setTimeout(() => {
+            if (generation === loadGeneration && settled && img.c2error) fn.call(img, { type: 'error', target: img });
+          }, 0);
         }
       };
       img.removeEventListener = function (type, fn) {
@@ -874,22 +885,30 @@ if (typeof self !== 'undefined') {
       };
 
       Object.defineProperty(img, 'onload', {
-        get() { return rawOnload; },
+        // Some hosts dispatch by reading the Image instance's own onload
+        // property. Keep that native route pointed at the once-only dispatcher.
+        get() { return nativeEventsUseOwnProperties ? onImageLoaded : rawOnload; },
         set(fn) {
           rawOnload = fn;
           if (_complete && !img.c2error && typeof fn === 'function') {
-            setTimeout(() => fn.call(img, { type: 'load', target: img }), 0);
+            const generation = loadGeneration;
+            setTimeout(() => {
+              if (generation === loadGeneration && settled && !img.c2error) fn.call(img, { type: 'load', target: img });
+            }, 0);
           }
         },
         configurable: true
       });
 
       Object.defineProperty(img, 'onerror', {
-        get() { return rawOnerror; },
+        get() { return nativeEventsUseOwnProperties ? onImageErrored : rawOnerror; },
         set(fn) {
           rawOnerror = fn;
-          if (_complete && typeof fn === 'function') {
-            setTimeout(() => fn.call(img, { type: 'error', target: img }), 0);
+          if (_complete && img.c2error && typeof fn === 'function') {
+            const generation = loadGeneration;
+            setTimeout(() => {
+              if (generation === loadGeneration && settled && img.c2error) fn.call(img, { type: 'error', target: img });
+            }, 0);
           }
         },
         configurable: true
@@ -904,6 +923,11 @@ if (typeof self !== 'undefined') {
       Object.defineProperty(img, 'src', {
         get() { return _currentSrc; },
         set(val) {
+          loadGeneration++;
+          settled = false;
+          _complete = false;
+          _loaded = false;
+          img.c2error = false;
           if (!val) {
             _currentSrc = '';
             if (protoSrcDesc && protoSrcDesc.set) {
@@ -926,12 +950,8 @@ if (typeof self !== 'undefined') {
           } else {
             try { img._src = resolved; } catch (e) {}
           }
-          // Safeguard: auto-resolve after 6s so image loading never stalls indefinitely
-          setTimeout(() => {
-            if (!_complete) {
-              onImageLoaded();
-            }
-          }, 6000);
+          // Never manufacture a successful load on timeout. A zero-sized or
+          // undecoded native image must remain failed/pending and be diagnosed.
         },
         configurable: true
       });
@@ -1960,78 +1980,85 @@ if (typeof self !== 'undefined') {
       this.innerHTML = '';
 
       // Media / Video / Audio properties and methods
-      let _src = '';
-      Object.defineProperty(this, 'src', {
-        get() { return _src; },
-        set(val) {
-          _src = val;
+      // DO NOT attach dummy media methods to AUDIO elements (MiniAudio defines its own real methods)
+      if (this.tagName !== 'AUDIO') {
+        let _src = '';
+        Object.defineProperty(this, 'src', {
+          get() { return _src; },
+          set(val) {
+            _src = val;
+            setTimeout(() => {
+              this.dispatchEvent({ type: 'loadstart' });
+              this.dispatchEvent({ type: 'canplay' });
+              this.dispatchEvent({ type: 'canplaythrough' });
+            }, 0);
+          },
+          configurable: true
+        });
+        this.canPlayType = function (mime) {
+          if (!mime) return '';
+          const m = String(mime).toLowerCase();
+          if (
+            m.includes('webm') ||
+            m.includes('opus') ||
+            m.includes('vorbis') ||
+            m.includes('ogg')
+          ) {
+            return '';
+          }
+          if (
+            m.includes('mp4') ||
+            m.includes('h264') ||
+            m.includes('avc1') ||
+            m.includes('mp3') ||
+            m.includes('mpeg') ||
+            m.includes('m4a') ||
+            m.includes('aac') ||
+            m.includes('wav')
+          ) {
+            return 'maybe';
+          }
+          return '';
+        };
+        this.play = function () {
+          this.paused = false;
+          this.ended = false;
           setTimeout(() => {
-            this.dispatchEvent({ type: 'loadstart' });
+            this.dispatchEvent({ type: 'playing' });
+            setTimeout(() => {
+              this.paused = true;
+              this.ended = true;
+              this.currentTime = this.duration || 1;
+              this.dispatchEvent({ type: 'ended' });
+            }, 60);
+          }, 20);
+          return Promise.resolve();
+        };
+        this.pause = function () {
+          this.paused = true;
+          this.dispatchEvent({ type: 'pause' });
+        };
+        this.load = function () {
+          setTimeout(() => {
             this.dispatchEvent({ type: 'canplay' });
-            this.dispatchEvent({ type: 'canplaythrough' });
           }, 0);
-        },
-        configurable: true
-      });
-      this.canPlayType = function (mime) {
-        if (!mime) return '';
-        const m = String(mime).toLowerCase();
-        if (
-          m.includes('webm') ||
-          m.includes('opus') ||
-          m.includes('vorbis') ||
-          m.includes('ogg') ||
-          m.includes('mp4') ||
-          m.includes('h264') ||
-          m.includes('avc1') ||
-          m.includes('mp3') ||
-          m.includes('mpeg') ||
-          m.includes('m4a') ||
-          m.includes('aac') ||
-          m.includes('wav')
-        ) {
-          return 'maybe';
-        }
-        return '';
-      };
-      this.play = function () {
-        this.paused = false;
-        this.ended = false;
-        setTimeout(() => {
-          this.dispatchEvent({ type: 'playing' });
-          setTimeout(() => {
-            this.paused = true;
-            this.ended = true;
-            this.currentTime = this.duration || 1;
-            this.dispatchEvent({ type: 'ended' });
-          }, 60);
-        }, 20);
-        return Promise.resolve();
-      };
-      this.pause = function () {
-        this.paused = true;
-        this.dispatchEvent({ type: 'pause' });
-      };
-      this.load = function () {
-        setTimeout(() => {
-          this.dispatchEvent({ type: 'canplay' });
-        }, 0);
-      };
-      try { this.currentTime = 0; } catch (e) {}
-      try { this.duration = 1; } catch (e) {}
-      try { this.playbackRate = 1; } catch (e) {}
-      try { this.loop = false; } catch (e) {}
-      try { this.muted = false; } catch (e) {}
-      try { this.volume = 1; } catch (e) {}
-      try { this.videoWidth = 0; } catch (e) {}
-      try { this.videoHeight = 0; } catch (e) {}
-      try { this.paused = true; } catch (e) {}
-      try { this.ended = false; } catch (e) {}
-      try { this.readyState = 4; } catch (e) {}
-      try { this.crossOrigin = ''; } catch (e) {}
-      try { this.playsInline = true; } catch (e) {}
-      try { this.requestVideoFrameCallback = null; } catch (e) {}
-      try { this.cancelVideoFrameCallback = null; } catch (e) {}
+        };
+        try { this.currentTime = 0; } catch (e) {}
+        try { this.duration = 1; } catch (e) {}
+        try { this.playbackRate = 1; } catch (e) {}
+        try { this.loop = false; } catch (e) {}
+        try { this.muted = false; } catch (e) {}
+        try { this.volume = 1; } catch (e) {}
+        try { this.videoWidth = 0; } catch (e) {}
+        try { this.videoHeight = 0; } catch (e) {}
+        try { this.paused = true; } catch (e) {}
+        try { this.ended = false; } catch (e) {}
+        try { this.readyState = 4; } catch (e) {}
+        try { this.crossOrigin = ''; } catch (e) {}
+        try { this.playsInline = true; } catch (e) {}
+        try { this.requestVideoFrameCallback = null; } catch (e) {}
+        try { this.cancelVideoFrameCallback = null; } catch (e) {}
+      }
     }
     cloneNode(deep) {
       const clone = createAdaptedElement(this.tagName);
@@ -2307,23 +2334,33 @@ if (typeof self !== 'undefined') {
     constructor(src) {
       super('AUDIO');
       this._src = '';
+      this._resolvedSrc = '';
       this._duration = 0;
+      this._currentTime = 0;
+      this._volume = 1;
+      this._playbackRate = 1;
       this._paused = true;
       this._ended = false;
+      this._loop = false;
+      this.autoplay = false;
+      this.preload = 'auto';
+      this.crossOrigin = 'anonymous';
+      this._listeners = new Map();
+
       this._innerAudio = (typeof tt !== 'undefined' && typeof tt.createInnerAudioContext === 'function')
         ? tt.createInnerAudioContext()
         : null;
-      this._listeners = new Map();
-      this.autoplay = false;
-      this.loop = false;
-      this.preload = 'auto';
 
       if (this._innerAudio) {
-        this._innerAudio.onCanplay(() => this._emit('canplay'));
+        this._innerAudio.onCanplay(() => {
+          this._emit('canplay');
+          this._emit('canplaythrough');
+        });
         this._innerAudio.onPlay(() => {
           this._paused = false;
           this._ended = false;
           this._emit('play');
+          this._emit('playing');
         });
         this._innerAudio.onPause(() => {
           this._paused = true;
@@ -2339,7 +2376,10 @@ if (typeof self !== 'undefined') {
           this._ended = true;
           this._emit('ended');
         });
-        this._innerAudio.onError((err) => this._emit('error', err));
+        this._innerAudio.onError((err) => {
+          console.warn('[MiniAudio InnerAudio Error]', this._src, err);
+          this._emit('error', err);
+        });
       }
 
       if (src) this.src = src;
@@ -2348,51 +2388,117 @@ if (typeof self !== 'undefined') {
     get src() { return this._src; }
     set src(val) {
       this._src = val;
-      if (this._innerAudio && val) {
+      if (val) {
         let clean = String(val);
         if (clean.startsWith('https://minigame.local/')) clean = clean.substring('https://minigame.local/'.length);
         if (clean.startsWith('file:///')) clean = clean.substring('file:///'.length);
         if (clean.startsWith('./')) clean = clean.substring(2);
         if (clean.startsWith('/')) clean = clean.substring(1);
+        // Normalize .ogg to .m4a since only .m4a exists in project package
+        clean = clean.replace(/\.ogg$/i, '.m4a');
         if (!clean.startsWith('http://') && !clean.startsWith('https://') && !clean.startsWith('media/') && !clean.startsWith('data/') && !clean.startsWith('images/')) {
-          if (clean.endsWith('.m4a') || clean.endsWith('.mp3') || clean.endsWith('.ogg') || clean.endsWith('.wav') || clean.endsWith('.aac')) {
+          if (clean.endsWith('.m4a') || clean.endsWith('.mp3') || clean.endsWith('.wav') || clean.endsWith('.aac')) {
             clean = 'media/' + clean;
           }
         }
-        this._innerAudio.src = clean;
+        this._resolvedSrc = clean;
+        if (this._innerAudio) {
+          this._innerAudio.src = clean;
+        }
+        setTimeout(() => {
+          this._emit('loadstart');
+          this._emit('canplay');
+          this._emit('canplaythrough');
+        }, 0);
       }
     }
 
-    get currentTime() { return this._innerAudio ? (this._innerAudio.currentTime || 0) : 0; }
-    set currentTime(val) { if (this._innerAudio) this._innerAudio.seek(val); }
+    get currentTime() {
+      return this._innerAudio ? (this._innerAudio.currentTime || 0) : this._currentTime;
+    }
+    set currentTime(val) {
+      const v = Number(val) || 0;
+      this._currentTime = v;
+      if (this._innerAudio && typeof this._innerAudio.seek === 'function') {
+        try { this._innerAudio.seek(v); } catch (e) {}
+      }
+    }
 
-    get duration() { return this._innerAudio ? (this._innerAudio.duration || this._duration || 0) : (this._duration || 0); }
-    set duration(val) { this._duration = Number(val) || 0; }
+    get duration() {
+      return this._innerAudio ? (this._innerAudio.duration || this._duration || 0) : (this._duration || 0);
+    }
+    set duration(val) {
+      this._duration = Number(val) || 0;
+    }
 
-    get volume() { return this._innerAudio ? this._innerAudio.volume : 1; }
-    set volume(val) { if (this._innerAudio) this._innerAudio.volume = Math.max(0, Math.min(1, val)); }
+    get volume() {
+      return this._innerAudio ? (typeof this._innerAudio.volume === 'number' ? this._innerAudio.volume : this._volume) : this._volume;
+    }
+    set volume(val) {
+      const v = Math.max(0, Math.min(1, Number(val) || 0));
+      this._volume = v;
+      if (this._innerAudio) {
+        try { this._innerAudio.volume = v; } catch (e) {}
+      }
+    }
 
-    get muted() { return this.volume === 0; }
-    set muted(val) { if (this._innerAudio) this._innerAudio.volume = val ? 0 : 1; }
+    get loop() {
+      return this._innerAudio ? !!this._innerAudio.loop : this._loop;
+    }
+    set loop(val) {
+      const l = !!val;
+      this._loop = l;
+      if (this._innerAudio) {
+        try { this._innerAudio.loop = l; } catch (e) {}
+      }
+    }
 
-    get playbackRate() { return this._innerAudio ? (this._innerAudio.playbackRate || 1) : 1; }
-    set playbackRate(val) { if (this._innerAudio && this._innerAudio.playbackRate !== undefined) this._innerAudio.playbackRate = val; }
+    get muted() {
+      return this.volume === 0;
+    }
+    set muted(val) {
+      this.volume = val ? 0 : 1;
+    }
 
-    get paused() { return this._innerAudio ? (this._innerAudio.paused !== false) : (this._paused !== false); }
-    set paused(val) { this._paused = !!val; }
+    get playbackRate() {
+      return this._innerAudio ? (this._innerAudio.playbackRate || this._playbackRate) : this._playbackRate;
+    }
+    set playbackRate(val) {
+      const r = Number(val) || 1;
+      this._playbackRate = r;
+      if (this._innerAudio && this._innerAudio.playbackRate !== undefined) {
+        try { this._innerAudio.playbackRate = r; } catch (e) {}
+      }
+    }
+
+    get paused() {
+      return this._innerAudio ? (this._innerAudio.paused !== false) : (this._paused !== false);
+    }
+    set paused(val) {
+      this._paused = !!val;
+    }
 
     get readyState() { return 4; }
     set readyState(val) {}
 
-    get ended() { return this._innerAudio ? (this._innerAudio.ended || false) : (this._ended || false); }
-    set ended(val) { this._ended = !!val; }
+    get ended() {
+      return this._innerAudio ? (this._innerAudio.ended || false) : (this._ended || false);
+    }
+    set ended(val) {
+      this._ended = !!val;
+    }
 
     play() {
       this._paused = false;
       this._ended = false;
       if (this._innerAudio) {
-        this._innerAudio.loop = this.loop;
-        this._innerAudio.play();
+        try {
+          this._innerAudio.loop = this.loop;
+          this._innerAudio.volume = this._volume;
+          this._innerAudio.play();
+        } catch (e) {
+          console.warn('[MiniAudio play error]', e);
+        }
       }
       return Promise.resolve();
     }
@@ -2400,8 +2506,30 @@ if (typeof self !== 'undefined') {
     pause() {
       this._paused = true;
       if (this._innerAudio) {
-        this._innerAudio.pause();
+        try {
+          this._innerAudio.pause();
+        } catch (e) {}
       }
+    }
+
+    stop() {
+      this._paused = true;
+      this._ended = true;
+      if (this._innerAudio) {
+        try {
+          this._innerAudio.stop();
+        } catch (e) {}
+      }
+    }
+
+    load() {
+      if (this._innerAudio && this._resolvedSrc) {
+        this._innerAudio.src = this._resolvedSrc;
+      }
+      setTimeout(() => {
+        this._emit('canplay');
+        this._emit('canplaythrough');
+      }, 0);
     }
 
     canPlayType(mime) {
@@ -2426,8 +2554,14 @@ if (typeof self !== 'undefined') {
     }
 
     addEventListener(type, cb) {
+      if (typeof cb !== 'function') return;
       if (!this._listeners.has(type)) this._listeners.set(type, new Set());
       this._listeners.get(type).add(cb);
+      if (type === 'canplay' || type === 'canplaythrough') {
+        setTimeout(() => {
+          try { cb({ type, target: this }); } catch (e) {}
+        }, 0);
+      }
     }
 
     removeEventListener(type, cb) {
@@ -3083,10 +3217,10 @@ if (typeof self !== 'undefined') {
           return ctx;
         };
       }
-      if (!c.tagName) c.tagName = 'CANVAS';
-      if (!c.nodeName) c.nodeName = 'CANVAS';
-      if (!c.nodeType) c.nodeType = 1;
-      c.ownerDocument = (typeof root !== 'undefined' && root.document) ? root.document : null;
+      try { if (!c.tagName) c.tagName = 'CANVAS'; } catch (e) {}
+      try { if (!c.nodeName) c.nodeName = 'CANVAS'; } catch (e) {}
+      try { if (typeof c.nodeType === 'undefined') c.nodeType = 1; } catch (e) {}
+      try { if (!c.ownerDocument) c.ownerDocument = (typeof root !== 'undefined' && root.document) ? root.document : null; } catch (e) {}
       c.parentNode = null;
       c.parentElement = null;
       if (!c.focus) c.focus = () => {};
@@ -3122,8 +3256,11 @@ if (typeof self !== 'undefined') {
     }
     if (t === 'img' || t === 'image') {
       const img = typeof root.Image === 'function' ? new root.Image() : (typeof tt !== 'undefined' && tt.createImage ? tt.createImage() : new MiniElement('IMG'));
-      img.ownerDocument = (typeof root !== 'undefined' && root.document) ? root.document : null;
-      img.nodeType = 1;
+      // ByteDance native Node fields can be getter-only. Preserve native
+      // values; only supplement absent metadata, and never let a DOM shim
+      // abort atlas discovery because a compatibility write was rejected.
+      try { if (!img.ownerDocument) img.ownerDocument = (typeof root !== 'undefined' && root.document) ? root.document : null; } catch (e) {}
+      try { if (typeof img.nodeType === 'undefined') img.nodeType = 1; } catch (e) {}
       miniGameImages.add(img);
       return img;
     }
